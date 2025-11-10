@@ -1,0 +1,485 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "AccelByte Challenge Service API",
+    "description": "Challenge service for managing user challenge progress and reward claims",
+    "version": "1.0"
+  },
+  "tags": [
+    {
+      "name": "Service"
+    }
+  ],
+  "basePath": "/challenge",
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "Health check",
+        "description": "Check service and database health",
+        "operationId": "Service_HealthCheck",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/serviceHealthCheckResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/v1/challenges": {
+      "get": {
+        "summary": "Get user challenges",
+        "description": "Retrieve all challenges for the authenticated user with current progress",
+        "operationId": "Service_GetUserChallenges",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/serviceGetChallengesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "activeOnly",
+            "description": "M3 Phase 4: Filter to show only active goals (default: false shows all goals)",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
+        "tags": [
+          "Challenges"
+        ],
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/challenges/initialize": {
+      "post": {
+        "summary": "Initialize player goals",
+        "description": "Assign default goals to new players or sync existing players with config changes",
+        "operationId": "Service_InitializePlayer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/serviceInitializeResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/serviceInitializeRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Challenges"
+        ],
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/challenges/{challengeId}/goals/{goalId}/active": {
+      "put": {
+        "summary": "Set goal active/inactive",
+        "description": "Allow players to manually control goal assignment",
+        "operationId": "Service_SetGoalActive",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/serviceSetGoalActiveResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "challengeId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "isActive": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        ],
+        "tags": [
+          "Challenges"
+        ],
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/challenges/{challengeId}/goals/{goalId}/claim": {
+      "post": {
+        "summary": "Claim goal reward",
+        "description": "Claim reward for a completed goal",
+        "operationId": "Service_ClaimGoalReward",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/serviceClaimRewardResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "challengeId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object"
+            }
+          }
+        ],
+        "tags": [
+          "Challenges"
+        ],
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "serviceAssignedGoal": {
+      "type": "object",
+      "properties": {
+        "challengeId": {
+          "type": "string"
+        },
+        "goalId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "assignedAt": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "progress": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "target": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "status": {
+          "type": "string"
+        },
+        "requirement": {
+          "$ref": "#/definitions/serviceRequirement"
+        },
+        "reward": {
+          "$ref": "#/definitions/serviceReward"
+        }
+      }
+    },
+    "serviceChallenge": {
+      "type": "object",
+      "properties": {
+        "challengeId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/serviceGoal"
+          }
+        }
+      },
+      "title": "Domain Models"
+    },
+    "serviceClaimRewardResponse": {
+      "type": "object",
+      "properties": {
+        "goalId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "reward": {
+          "$ref": "#/definitions/serviceReward"
+        },
+        "claimedAt": {
+          "type": "string"
+        }
+      }
+    },
+    "serviceGetChallengesResponse": {
+      "type": "object",
+      "properties": {
+        "challenges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/serviceChallenge"
+          }
+        }
+      }
+    },
+    "serviceGoal": {
+      "type": "object",
+      "properties": {
+        "goalId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "requirement": {
+          "$ref": "#/definitions/serviceRequirement"
+        },
+        "reward": {
+          "$ref": "#/definitions/serviceReward"
+        },
+        "prerequisites": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "progress": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "status": {
+          "type": "string"
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "completedAt": {
+          "type": "string"
+        },
+        "claimedAt": {
+          "type": "string"
+        }
+      }
+    },
+    "serviceHealthCheckResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        }
+      }
+    },
+    "serviceInitializeRequest": {
+      "type": "object",
+      "title": "User ID and namespace extracted from JWT (not from request body)"
+    },
+    "serviceInitializeResponse": {
+      "type": "object",
+      "properties": {
+        "assignedGoals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/serviceAssignedGoal"
+          }
+        },
+        "newAssignments": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "totalActive": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "serviceRequirement": {
+      "type": "object",
+      "properties": {
+        "statCode": {
+          "type": "string"
+        },
+        "operator": {
+          "type": "string"
+        },
+        "targetValue": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "serviceReward": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "rewardId": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "serviceSetGoalActiveResponse": {
+      "type": "object",
+      "properties": {
+        "challengeId": {
+          "type": "string"
+        },
+        "goalId": {
+          "type": "string"
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "assignedAt": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "securityDefinitions": {
+    "Bearer": {
+      "type": "apiKey",
+      "name": "Authorization",
+      "in": "header"
+    }
+  }
+}

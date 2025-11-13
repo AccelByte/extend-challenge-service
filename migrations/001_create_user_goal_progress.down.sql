@@ -1,4 +1,7 @@
 -- Drop indexes first (dependency of table)
+DROP INDEX IF EXISTS idx_user_goal_active_only;
+DROP INDEX IF EXISTS idx_user_goal_lookup;
+DROP INDEX IF EXISTS idx_user_goal_count;
 DROP INDEX IF EXISTS idx_user_goal_progress_user_active;
 DROP INDEX IF EXISTS idx_user_goal_progress_user_challenge;
 

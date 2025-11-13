@@ -291,10 +291,19 @@ func main() {
 		swaggerDir := "gateway/apidocs" // Path to swagger directory
 
 		// Create optimized challenges handler (uses pre-serialized cache for 40% CPU reduction)
-		optimizedHandler := handler.NewOptimizedChallengesHandler(
+		optimizedChallengesHandler := handler.NewOptimizedChallengesHandler(
 			goalCache,
 			goalRepo,
 			serializedCache,
+			namespace,
+			authEnabled,
+			common.Validator, // Token validator (may be nil if auth disabled)
+		)
+
+		// Create optimized initialize handler (bypasses Protobuf marshaling for 50% CPU reduction)
+		optimizedInitializeHandler := handler.NewOptimizedInitializeHandler(
+			goalCache,
+			goalRepo,
 			namespace,
 			authEnabled,
 			common.Validator, // Token validator (may be nil if auth disabled)
@@ -305,10 +314,11 @@ func main() {
 			grpcGateway,
 			logrus.New(),
 			swaggerDir,
-			optimizedHandler, // Pass optimized handler
+			optimizedChallengesHandler, // Pass optimized challenges handler
+			optimizedInitializeHandler, // Pass optimized initialize handler
 			basePath,
 		)
-		logrus.Infof("Starting gRPC-Gateway HTTP server on port %d (with optimized /v1/challenges endpoint)", grpcGatewayHTTPPort)
+		logrus.Infof("Starting gRPC-Gateway HTTP server on port %d (with optimized /v1/challenges and /v1/challenges/initialize endpoints)", grpcGatewayHTTPPort)
 		if err := grpcGatewayHTTPServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logrus.Fatalf("Failed to run gRPC-Gateway HTTP server: %v", err)
 		}
@@ -401,6 +411,7 @@ func newGRPCGatewayHTTPServer(
 	logger *logrus.Logger,
 	swaggerDir string,
 	optimizedChallengesHandler *handler.OptimizedChallengesHandler,
+	optimizedInitializeHandler *handler.OptimizedInitializeHandler,
 	basePath string,
 ) *http.Server {
 	// Create a new ServeMux
@@ -409,9 +420,16 @@ func newGRPCGatewayHTTPServer(
 	// Register optimized challenges endpoint BEFORE the catch-all gRPC-Gateway handler
 	// This endpoint uses pre-serialized challenge data for ~40% CPU reduction
 	// Path must match the protobuf definition: GET /v1/challenges
-	optimizedPath := basePath + "/v1/challenges"
-	mux.Handle(optimizedPath, optimizedChallengesHandler)
-	logger.Infof("Registered optimized handler for %s (pre-serialization enabled)", optimizedPath)
+	optimizedChallengesPath := basePath + "/v1/challenges"
+	mux.Handle(optimizedChallengesPath, optimizedChallengesHandler)
+	logger.Infof("Registered optimized handler for %s (pre-serialization enabled)", optimizedChallengesPath)
+
+	// Register optimized initialize endpoint BEFORE the catch-all gRPC-Gateway handler
+	// This endpoint bypasses Protobuf marshaling for ~50% CPU reduction
+	// Path must match the protobuf definition: POST /v1/challenges/initialize
+	optimizedInitializePath := basePath + "/v1/challenges/initialize"
+	mux.Handle(optimizedInitializePath, optimizedInitializeHandler)
+	logger.Infof("Registered optimized handler for %s (direct JSON encoding enabled)", optimizedInitializePath)
 
 	// Add the gRPC-Gateway handler as catch-all (must be last)
 	// This handles all other endpoints including /v1/challenges/{id}/goals/{id}/claim

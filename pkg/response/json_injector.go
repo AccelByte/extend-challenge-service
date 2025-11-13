@@ -126,6 +126,7 @@ func buildProgressFields(progress *commonDomain.UserGoalProgress) []byte {
 // Args:
 //   - staticJSON: Pre-serialized challenge JSON from cache
 //   - userProgress: Map of goal ID -> user progress data
+//   - goalCount: Number of goals in challenge (for optimal buffer allocation)
 //
 // Returns:
 //   - []byte: Challenge JSON with progress injected into all goals
@@ -145,6 +146,7 @@ func buildProgressFields(progress *commonDomain.UserGoalProgress) []byte {
 func InjectProgressIntoChallenge(
 	staticJSON []byte,
 	userProgress map[string]*commonDomain.UserGoalProgress,
+	goalCount int,
 ) ([]byte, error) {
 	// Find "goals" field in JSON
 	goalsIdx := bytes.Index(staticJSON, []byte(`"goals":`))
@@ -167,8 +169,10 @@ func InjectProgressIntoChallenge(
 	}
 
 	// Build result buffer
-	// Allocate: original + (5 goals * 100 bytes progress each) = original + 500 bytes
-	result := bytes.NewBuffer(make([]byte, 0, len(staticJSON)+500))
+	// Allocate based on actual goal count (not hardcoded 500 bytes)
+	// Each goal needs ~120-150 bytes for progress fields
+	estimatedGrowth := goalCount * 150
+	result := bytes.NewBuffer(make([]byte, 0, len(staticJSON)+estimatedGrowth))
 
 	// Write everything before goals array
 	result.Write(staticJSON[:arrayStartIdx+1])

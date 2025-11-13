@@ -79,9 +79,21 @@ func (b *ChallengeResponseBuilder) BuildChallengesResponse(
 		return []byte(`{"challenges":[]}`), nil
 	}
 
-	// Build response with string concatenation
-	// Typical size: 1 challenge = ~2KB, 5 challenges = ~10KB
-	result := bytes.NewBuffer(make([]byte, 0, len(challengeIDs)*2048+100))
+	// Calculate total size needed based on actual goal counts
+	totalSize := 100 // {"challenges":[...]}
+	for _, challengeID := range challengeIDs {
+		staticJSON, ok := b.cache.GetChallengeJSON(challengeID)
+		if !ok {
+			return nil, fmt.Errorf("challenge %s not found in serialization cache", challengeID)
+		}
+
+		goalCount := b.cache.GetGoalCount(challengeID)
+		totalSize += len(staticJSON)
+		totalSize += goalCount * 150 // 150 bytes per goal for progress fields
+	}
+
+	// Allocate buffer with accurate size
+	result := bytes.NewBuffer(make([]byte, 0, totalSize))
 
 	// Start response
 	result.WriteString(`{"challenges":[`)
@@ -98,9 +110,10 @@ func (b *ChallengeResponseBuilder) BuildChallengesResponse(
 			return nil, fmt.Errorf("challenge %s not found in serialization cache", challengeID)
 		}
 
-		// Inject user progress into challenge using string injection
-		// This is the FAST operation - no unmarshal/marshal!
-		challengeWithProgress, err := InjectProgressIntoChallenge(staticJSON, userProgress)
+		goalCount := b.cache.GetGoalCount(challengeID)
+
+		// Inject user progress into challenge with goal count for optimal buffer sizing
+		challengeWithProgress, err := InjectProgressIntoChallenge(staticJSON, userProgress, goalCount)
 		if err != nil {
 			return nil, fmt.Errorf("failed to inject progress into challenge %s: %w", challengeID, err)
 		}
@@ -144,9 +157,11 @@ func (b *ChallengeResponseBuilder) BuildSingleChallenge(
 		return nil, fmt.Errorf("challenge %s not found in serialization cache", challengeID)
 	}
 
-	// Inject user progress using string injection
+	goalCount := b.cache.GetGoalCount(challengeID)
+
+	// Inject user progress using string injection with goal count
 	// This is FAST - no unmarshal/marshal cycle!
-	challengeWithProgress, err := InjectProgressIntoChallenge(staticJSON, userProgress)
+	challengeWithProgress, err := InjectProgressIntoChallenge(staticJSON, userProgress, goalCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inject progress: %w", err)
 	}

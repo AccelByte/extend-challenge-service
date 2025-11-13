@@ -5,6 +5,7 @@
 package integration
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,6 +14,27 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// assertTimestampsEqual compares two RFC3339 timestamp strings as time values
+// This ensures timezone-agnostic comparison (e.g., "2025-11-11T13:11:39Z" == "2025-11-11T20:11:39+07:00")
+func assertTimestampsEqual(t *testing.T, expected, actual string, msgAndArgs ...interface{}) {
+	t.Helper()
+
+	expectedTime, err := time.Parse(time.RFC3339, expected)
+	require.NoError(t, err, "Failed to parse expected timestamp: %s", expected)
+
+	actualTime, err := time.Parse(time.RFC3339, actual)
+	require.NoError(t, err, "Failed to parse actual timestamp: %s", actual)
+
+	if !expectedTime.Equal(actualTime) {
+		msg := fmt.Sprintf("Timestamps not equal:\n  Expected: %s (%s)\n  Actual:   %s (%s)",
+			expected, expectedTime.UTC(), actual, actualTime.UTC())
+		if len(msgAndArgs) > 0 {
+			msg = fmt.Sprintf("%v\n%s", msgAndArgs[0], msg)
+		}
+		t.Error(msg)
+	}
+}
 
 // TestInitializePlayer_FirstLogin verifies that a new player receives default goals
 func TestInitializePlayer_FirstLogin(t *testing.T) {
@@ -91,7 +113,7 @@ func TestInitializePlayer_SubsequentLogin_FastPath(t *testing.T) {
 	// Verify same goal is returned
 	goal := resp2.AssignedGoals[0]
 	assert.Equal(t, "complete-tutorial", goal.GoalId, "Same goal should be returned")
-	assert.Equal(t, firstAssignedAt, goal.AssignedAt, "AssignedAt timestamp should not change")
+	assertTimestampsEqual(t, firstAssignedAt, goal.AssignedAt, "AssignedAt timestamp should not change")
 	assert.Equal(t, "not_started", goal.Status, "Status should remain unchanged")
 	assert.Equal(t, int32(0), goal.Progress, "Progress should remain unchanged")
 }
@@ -192,7 +214,7 @@ func TestInitializePlayer_Idempotency(t *testing.T) {
 	for i := 1; i < 5; i++ {
 		assert.Equal(t, responses[0].AssignedGoals[0].GoalId, responses[i].AssignedGoals[0].GoalId,
 			"All calls should return the same goal")
-		assert.Equal(t, responses[0].AssignedGoals[0].AssignedAt, responses[i].AssignedGoals[0].AssignedAt,
+		assertTimestampsEqual(t, responses[0].AssignedGoals[0].AssignedAt, responses[i].AssignedGoals[0].AssignedAt,
 			"AssignedAt timestamp should remain constant")
 	}
 }

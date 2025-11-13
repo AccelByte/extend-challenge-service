@@ -34,6 +34,20 @@ CREATE INDEX idx_user_goal_progress_user_active
 ON user_goal_progress(user_id, is_active)
 WHERE is_active = true;
 
+-- M3 Phase 9: Fast path optimization for InitializePlayer
+-- Used by GetUserGoalCount() to quickly check if user is initialized
+CREATE INDEX idx_user_goal_count ON user_goal_progress(user_id);
+
+-- M3 Phase 9: Composite index for fast goal lookups
+-- Used by GetGoalsByIDs for faster querying with IN clause
+CREATE INDEX idx_user_goal_lookup ON user_goal_progress(user_id, goal_id);
+
+-- M3 Phase 9: Partial index for active-only queries
+-- Used by GetActiveGoals() for fast path returning users
+CREATE INDEX idx_user_goal_active_only
+ON user_goal_progress(user_id)
+WHERE is_active = true;
+
 -- Add comments for documentation
 COMMENT ON TABLE user_goal_progress IS 'Tracks user progress for challenge goals';
 COMMENT ON COLUMN user_goal_progress.user_id IS 'AGS user identifier from JWT';

@@ -30,6 +30,7 @@ type SerializedChallengeCache struct {
 	mu         sync.RWMutex
 	challenges map[string][]byte // challengeID -> pre-serialized JSON
 	goals      map[string][]byte // goalID -> pre-serialized JSON
+	goalCounts map[string]int    // challengeID -> goal count
 	marshaler  protojson.MarshalOptions
 }
 
@@ -38,6 +39,7 @@ func NewSerializedChallengeCache() *SerializedChallengeCache {
 	return &SerializedChallengeCache{
 		challenges: make(map[string][]byte),
 		goals:      make(map[string][]byte),
+		goalCounts: make(map[string]int),
 		marshaler: protojson.MarshalOptions{
 			UseProtoNames:   false, // Use camelCase (default) instead of proto snake_case names
 			EmitUnpopulated: false,
@@ -69,6 +71,9 @@ func (c *SerializedChallengeCache) WarmUp(challenges []*pb.Challenge) error {
 		if challenge == nil {
 			continue
 		}
+
+		// Store goal count for optimal buffer sizing
+		c.goalCounts[challenge.ChallengeId] = len(challenge.Goals)
 
 		// Pre-serialize each goal (without user progress - will be injected later)
 		for _, goal := range challenge.Goals {
@@ -171,12 +176,16 @@ func (c *SerializedChallengeCache) Refresh(challenges []*pb.Challenge) error {
 	// Create new maps for atomic replacement
 	newChallenges := make(map[string][]byte)
 	newGoals := make(map[string][]byte)
+	newGoalCounts := make(map[string]int)
 
 	// Pre-serialize all challenges and goals (same logic as WarmUp)
 	for _, challenge := range challenges {
 		if challenge == nil {
 			continue
 		}
+
+		// Store goal count for optimal buffer sizing
+		newGoalCounts[challenge.ChallengeId] = len(challenge.Goals)
 
 		for _, goal := range challenge.Goals {
 			if goal == nil {
@@ -222,6 +231,7 @@ func (c *SerializedChallengeCache) Refresh(challenges []*pb.Challenge) error {
 	c.mu.Lock()
 	c.challenges = newChallenges
 	c.goals = newGoals
+	c.goalCounts = newGoalCounts
 	c.mu.Unlock()
 
 	return nil
@@ -275,4 +285,19 @@ func (c *SerializedChallengeCache) ParseAndMerge(
 	_ = userProgress // avoid unused parameter warning
 
 	return challenge, nil
+}
+
+// GetGoalCount returns the number of goals for a challenge.
+//
+// Args:
+//   - challengeID: The challenge ID
+//
+// Returns:
+//   - int: Number of goals (0 if challenge not found)
+//
+// Thread-safety: Safe for concurrent access (uses RLock)
+func (c *SerializedChallengeCache) GetGoalCount(challengeID string) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.goalCounts[challengeID]
 }

@@ -37,7 +37,7 @@ func NewSonicMarshaler() *SonicMarshaler {
 		JSONPb: runtime.JSONPb{
 			MarshalOptions: protojson.MarshalOptions{
 				UseProtoNames:   false, // Use camelCase (default) instead of proto snake_case names
-				EmitUnpopulated: false,
+				EmitUnpopulated: true,  // Emit default values (needed for newAssignments: 0)
 			},
 			UnmarshalOptions: protojson.UnmarshalOptions{
 				DiscardUnknown: true,
@@ -59,7 +59,7 @@ func (m *SonicMarshaler) Marshal(v interface{}) ([]byte, error) {
 		// Marshal using MarshalAppend with pooled buffer
 		opts := protojson.MarshalOptions{
 			UseProtoNames:   false, // Use camelCase (default) instead of proto snake_case names
-			EmitUnpopulated: false,
+			EmitUnpopulated: true,  // Emit default values (needed for newAssignments: 0)
 		}
 		data, err := opts.MarshalAppend(buf.Bytes(), msg)
 		if err != nil {
@@ -140,7 +140,7 @@ func (e *sonicEncoder) Encode(v interface{}) error {
 		// MarshalAppend appends JSON to the buffer's existing bytes
 		data, err := protojson.MarshalOptions{
 			UseProtoNames:   false, // Use camelCase (default) instead of proto snake_case names
-			EmitUnpopulated: false,
+			EmitUnpopulated: true,  // Emit default values (needed for newAssignments: 0)
 		}.MarshalAppend(buf.Bytes(), msg)
 		if err != nil {
 			return err

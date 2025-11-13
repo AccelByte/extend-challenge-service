@@ -104,13 +104,14 @@ func TestClaimGoalReward_HappyPath(t *testing.T) {
 	// Seed completed goal
 	seedCompletedGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
 
-	// Mock reward granting to succeed (ITEM reward: winter_sword, quantity 1)
+	// Mock reward granting to succeed (ITEM reward: 767d2217abe241aab2245794761e9dc4, quantity 1)
+	// Note: This UUID matches the rewardId in config/challenges.test.json for kill-10-snowmen goal
 	mockRewardClient.On("GrantReward",
 		mock.Anything,
 		"test-namespace",
 		"test-user-123",
 		mock.MatchedBy(func(reward commonDomain.Reward) bool {
-			return reward.Type == "ITEM" && reward.RewardID == "winter_sword" && reward.Quantity == 1
+			return reward.Type == "ITEM" && reward.RewardID == "767d2217abe241aab2245794761e9dc4" && reward.Quantity == 1
 		}),
 	).Return(nil)
 

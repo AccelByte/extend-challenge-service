@@ -242,7 +242,7 @@ func TestWarmUp_JSONFormat(t *testing.T) {
 func TestGetGoalJSON_Found(t *testing.T) {
 	cache := NewSerializedChallengeCache()
 	challenges := createTestChallenges()
-	cache.WarmUp(challenges)
+	_ = cache.WarmUp(challenges)
 
 	goalJSON, ok := cache.GetGoalJSON("goal1")
 
@@ -259,7 +259,7 @@ func TestGetGoalJSON_Found(t *testing.T) {
 func TestGetGoalJSON_NotFound(t *testing.T) {
 	cache := NewSerializedChallengeCache()
 	challenges := createTestChallenges()
-	cache.WarmUp(challenges)
+	_ = cache.WarmUp(challenges)
 
 	goalJSON, ok := cache.GetGoalJSON("nonexistent")
 
@@ -279,7 +279,7 @@ func TestGetGoalJSON_EmptyCache(t *testing.T) {
 func TestGetChallengeJSON_Found(t *testing.T) {
 	cache := NewSerializedChallengeCache()
 	challenges := createTestChallenges()
-	cache.WarmUp(challenges)
+	_ = cache.WarmUp(challenges)
 
 	challengeJSON, ok := cache.GetChallengeJSON("challenge1")
 
@@ -297,7 +297,7 @@ func TestGetChallengeJSON_Found(t *testing.T) {
 func TestGetChallengeJSON_NotFound(t *testing.T) {
 	cache := NewSerializedChallengeCache()
 	challenges := createTestChallenges()
-	cache.WarmUp(challenges)
+	_ = cache.WarmUp(challenges)
 
 	challengeJSON, ok := cache.GetChallengeJSON("nonexistent")
 
@@ -317,7 +317,7 @@ func TestGetChallengeJSON_EmptyCache(t *testing.T) {
 func TestRefresh_Success(t *testing.T) {
 	cache := NewSerializedChallengeCache()
 	initialChallenges := createTestChallenges()
-	cache.WarmUp(initialChallenges)
+	_ = cache.WarmUp(initialChallenges)
 
 	// Verify initial state
 	_, ok := cache.GetChallengeJSON("challenge1")
@@ -361,7 +361,7 @@ func TestRefresh_Success(t *testing.T) {
 
 func TestRefresh_EmptyChallenges(t *testing.T) {
 	cache := NewSerializedChallengeCache()
-	cache.WarmUp(createTestChallenges())
+	_ = cache.WarmUp(createTestChallenges())
 
 	// Verify initial state has challenges
 	challengeCount, goalCount, _ := cache.GetStats()
@@ -380,7 +380,7 @@ func TestRefresh_EmptyChallenges(t *testing.T) {
 
 func TestRefresh_NilChallenges(t *testing.T) {
 	cache := NewSerializedChallengeCache()
-	cache.WarmUp(createTestChallenges())
+	_ = cache.WarmUp(createTestChallenges())
 
 	challenges := []*pb.Challenge{
 		nil,
@@ -421,7 +421,7 @@ func TestGetStats_EmptyCache(t *testing.T) {
 func TestGetStats_PopulatedCache(t *testing.T) {
 	cache := NewSerializedChallengeCache()
 	challenges := createTestChallenges()
-	cache.WarmUp(challenges)
+	_ = cache.WarmUp(challenges)
 
 	challengeCount, goalCount, totalBytes := cache.GetStats()
 
@@ -433,7 +433,7 @@ func TestGetStats_PopulatedCache(t *testing.T) {
 
 func TestGetStats_AfterRefresh(t *testing.T) {
 	cache := NewSerializedChallengeCache()
-	cache.WarmUp(createTestChallenges())
+	_ = cache.WarmUp(createTestChallenges())
 
 	// Get initial stats
 	initialChallenges, initialGoals, initialBytes := cache.GetStats()
@@ -453,7 +453,7 @@ func TestGetStats_AfterRefresh(t *testing.T) {
 			},
 		},
 	}
-	cache.Refresh(newChallenges)
+	_ = cache.Refresh(newChallenges)
 
 	// Stats should reflect new data
 	challengeCount, goalCount, totalBytes := cache.GetStats()
@@ -465,7 +465,7 @@ func TestGetStats_AfterRefresh(t *testing.T) {
 func TestParseAndMerge_ValidJSON(t *testing.T) {
 	cache := NewSerializedChallengeCache()
 	challenges := createTestChallenges()
-	cache.WarmUp(challenges)
+	_ = cache.WarmUp(challenges)
 
 	challengeJSON, ok := cache.GetChallengeJSON("challenge1")
 	require.True(t, ok)
@@ -514,7 +514,7 @@ func TestParseAndMerge_EmptyJSON(t *testing.T) {
 func TestParseAndMerge_NilUserProgress(t *testing.T) {
 	cache := NewSerializedChallengeCache()
 	challenges := createTestChallenges()
-	cache.WarmUp(challenges)
+	_ = cache.WarmUp(challenges)
 
 	challengeJSON, ok := cache.GetChallengeJSON("challenge1")
 	require.True(t, ok)
@@ -531,7 +531,7 @@ func TestParseAndMerge_NilUserProgress(t *testing.T) {
 func TestConcurrentAccess(t *testing.T) {
 	cache := NewSerializedChallengeCache()
 	challenges := createTestChallenges()
-	cache.WarmUp(challenges)
+	_ = cache.WarmUp(challenges)
 
 	// Simulate concurrent reads
 	done := make(chan bool)
@@ -560,7 +560,7 @@ func TestConcurrentAccess(t *testing.T) {
 // TestConcurrentRefresh tests thread-safety during refresh operations
 func TestConcurrentRefresh(t *testing.T) {
 	cache := NewSerializedChallengeCache()
-	cache.WarmUp(createTestChallenges())
+	_ = cache.WarmUp(createTestChallenges())
 
 	// Simulate concurrent reads and refresh
 	done := make(chan bool)
@@ -602,4 +602,99 @@ func TestConcurrentRefresh(t *testing.T) {
 	// After refresh, only new data should exist
 	_, ok := cache.GetChallengeJSON("challenge3")
 	assert.True(t, ok)
+}
+
+func TestGetGoalCount(t *testing.T) {
+	cache := NewSerializedChallengeCache()
+
+	// Create test challenge with 3 goals
+	challenge := &pb.Challenge{
+		ChallengeId: "test_challenge",
+		Goals: []*pb.Goal{
+			{GoalId: "goal1", Name: "Goal 1"},
+			{GoalId: "goal2", Name: "Goal 2"},
+			{GoalId: "goal3", Name: "Goal 3"},
+		},
+	}
+
+	err := cache.WarmUp([]*pb.Challenge{challenge})
+	assert.NoError(t, err)
+
+	// Test goal count retrieval
+	count := cache.GetGoalCount("test_challenge")
+	assert.Equal(t, 3, count)
+
+	// Test non-existent challenge
+	count = cache.GetGoalCount("nonexistent")
+	assert.Equal(t, 0, count)
+}
+
+func TestGetGoalCount_EmptyChallenge(t *testing.T) {
+	cache := NewSerializedChallengeCache()
+
+	challenge := &pb.Challenge{
+		ChallengeId: "empty_challenge",
+		Goals:       []*pb.Goal{},
+	}
+
+	err := cache.WarmUp([]*pb.Challenge{challenge})
+	assert.NoError(t, err)
+
+	count := cache.GetGoalCount("empty_challenge")
+	assert.Equal(t, 0, count)
+}
+
+func TestGetGoalCount_MultipleChallenges(t *testing.T) {
+	cache := NewSerializedChallengeCache()
+	challenges := createTestChallenges()
+
+	err := cache.WarmUp(challenges)
+	assert.NoError(t, err)
+
+	// challenge1 has 2 goals
+	count := cache.GetGoalCount("challenge1")
+	assert.Equal(t, 2, count)
+
+	// challenge2 has 1 goal
+	count = cache.GetGoalCount("challenge2")
+	assert.Equal(t, 1, count)
+}
+
+func TestGetGoalCount_AfterRefresh(t *testing.T) {
+	cache := NewSerializedChallengeCache()
+
+	// Initial challenges
+	initialChallenges := []*pb.Challenge{
+		{
+			ChallengeId: "challenge1",
+			Goals: []*pb.Goal{
+				{GoalId: "goal1", Name: "Goal 1"},
+				{GoalId: "goal2", Name: "Goal 2"},
+			},
+		},
+	}
+
+	err := cache.WarmUp(initialChallenges)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, cache.GetGoalCount("challenge1"))
+
+	// Refresh with different goal count
+	newChallenges := []*pb.Challenge{
+		{
+			ChallengeId: "challenge1",
+			Goals: []*pb.Goal{
+				{GoalId: "goal1", Name: "Goal 1"},
+				{GoalId: "goal2", Name: "Goal 2"},
+				{GoalId: "goal3", Name: "Goal 3"},
+				{GoalId: "goal4", Name: "Goal 4"},
+			},
+		},
+	}
+
+	err = cache.Refresh(newChallenges)
+	assert.NoError(t, err)
+
+	// Goal count should be updated
+	count := cache.GetGoalCount("challenge1")
+	assert.Equal(t, 4, count)
 }

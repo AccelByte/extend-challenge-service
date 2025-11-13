@@ -107,7 +107,7 @@ func SetGoalActive(
 	}
 
 	// 2. UPSERT goal progress
-	now := time.Now()
+	now := time.Now().UTC() // Always use UTC for consistency across timezones
 	progress := &domain.UserGoalProgress{
 		UserID:      userID,
 		GoalID:      goalID,

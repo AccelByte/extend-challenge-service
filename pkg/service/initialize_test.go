@@ -16,22 +16,23 @@ import (
 // NOTE: MockGoalCache and MockGoalRepository are defined in progress_query_test.go
 // to avoid duplication across test files.
 
-// Test InitializePlayer - Happy Path: First Login (creates ALL goals, both active and inactive)
-// M3: This test verifies that initialization creates rows for ALL goals,
-// with is_active set based on default_assigned config field
+// Test InitializePlayer - Happy Path: First Login (M3 Phase 9: Lazy Materialization)
+// Phase 9: Only creates rows for DEFAULT-ASSIGNED goals (not all goals)
+// Non-default goals will be created later via SetGoalActive when user activates them
 func TestInitializePlayer_FirstLogin(t *testing.T) {
 	ctx := context.Background()
 	userID := "user123"
 	namespace := "test-namespace"
 
-	// M3: Create mock goals with mix of default_assigned true/false
-	allGoals := []*domain.Goal{
+	// M3 Phase 9: Only default-assigned goals will be created (goal1, goal2)
+	// goal3 is NOT default-assigned, so it won't be created during initialization
+	defaultGoals := []*domain.Goal{
 		{
 			ID:              "goal1",
 			ChallengeID:     "challenge1",
 			Name:            "First Login",
 			Description:     "Login for the first time",
-			DefaultAssigned: true, // Will be is_active = true
+			DefaultAssigned: true, // Will create row with is_active = true
 			Type:            domain.GoalTypeAbsolute,
 			EventSource:     domain.EventSourceLogin,
 			Requirement: domain.Requirement{
@@ -50,7 +51,7 @@ func TestInitializePlayer_FirstLogin(t *testing.T) {
 			ChallengeID:     "challenge1",
 			Name:            "Complete Tutorial",
 			Description:     "Finish the tutorial",
-			DefaultAssigned: true, // Will be is_active = true
+			DefaultAssigned: true, // Will create row with is_active = true
 			Type:            domain.GoalTypeAbsolute,
 			EventSource:     domain.EventSourceStatistic,
 			Requirement: domain.Requirement{
@@ -64,40 +65,24 @@ func TestInitializePlayer_FirstLogin(t *testing.T) {
 				Quantity: 50,
 			},
 		},
-		{
-			ID:              "goal3",
-			ChallengeID:     "challenge1",
-			Name:            "Advanced Goal",
-			Description:     "An advanced goal",
-			DefaultAssigned: false, // Will be is_active = false
-			Type:            domain.GoalTypeAbsolute,
-			EventSource:     domain.EventSourceStatistic,
-			Requirement: domain.Requirement{
-				StatCode:    "advanced_stat",
-				Operator:    ">=",
-				TargetValue: 100,
-			},
-			Reward: domain.Reward{
-				Type:     string(domain.RewardTypeItem),
-				RewardID: "rare_item",
-				Quantity: 1,
-			},
-		},
 	}
 
 	// Setup mocks
 	mockCache := new(MockGoalCache)
 	mockRepo := new(MockGoalRepository)
 
-	// M3: Use GetAllGoals() instead of GetGoalsWithDefaultAssigned()
-	mockCache.On("GetAllGoals").Return(allGoals)
+	// M3 Phase 9: Use GetGoalsWithDefaultAssigned() instead of GetAllGoals()
+	mockCache.On("GetGoalsWithDefaultAssigned").Return(defaultGoals)
 
-	// First call - no existing goals
-	mockRepo.On("GetGoalsByIDs", ctx, userID, []string{"goal1", "goal2", "goal3"}).Return([]*domain.UserGoalProgress{}, nil).Once()
+	// M3 Phase 9: Fast path check - user has no goals yet (first login)
+	mockRepo.On("GetUserGoalCount", ctx, userID).Return(0, nil)
 
-	// Expect bulk insert call for ALL 3 goals (2 active, 1 inactive)
+	// Phase 10 Optimization: No GetGoalsByIDs() call when count == 0 (we know user has no goals)
+	// We skip the redundant query and directly insert all default goals
+
+	// Expect bulk insert call for 2 default-assigned goals (both active)
 	mockRepo.On("BulkInsert", ctx, mock.MatchedBy(func(progresses []*domain.UserGoalProgress) bool {
-		if len(progresses) != 3 {
+		if len(progresses) != 2 {
 			return false
 		}
 		// Validate first progress (active)
@@ -118,58 +103,15 @@ func TestInitializePlayer_FirstLogin(t *testing.T) {
 		assert.Equal(t, "goal2", p2.GoalID)
 		assert.True(t, p2.IsActive) // default_assigned = true
 
-		// M3: Validate third progress (INACTIVE)
-		p3 := progresses[2]
-		assert.Equal(t, userID, p3.UserID)
-		assert.Equal(t, "goal3", p3.GoalID)
-		assert.False(t, p3.IsActive) // default_assigned = false
-
 		return true
 	})).Return(nil)
 
-	// After insert, return the new goals
-	now := time.Now()
-	newProgress := []*domain.UserGoalProgress{
-		{
-			UserID:      userID,
-			GoalID:      "goal1",
-			ChallengeID: "challenge1",
-			Namespace:   namespace,
-			Progress:    0,
-			Status:      domain.GoalStatusNotStarted,
-			IsActive:    true,
-			AssignedAt:  &now,
-			ExpiresAt:   nil,
-		},
-		{
-			UserID:      userID,
-			GoalID:      "goal2",
-			ChallengeID: "challenge1",
-			Namespace:   namespace,
-			Progress:    0,
-			Status:      domain.GoalStatusNotStarted,
-			IsActive:    true,
-			AssignedAt:  &now,
-			ExpiresAt:   nil,
-		},
-		{
-			UserID:      userID,
-			GoalID:      "goal3",
-			ChallengeID: "challenge1",
-			Namespace:   namespace,
-			Progress:    0,
-			Status:      domain.GoalStatusNotStarted,
-			IsActive:    false, // M3: Inactive goal
-			AssignedAt:  &now,
-			ExpiresAt:   nil,
-		},
-	}
-	mockRepo.On("GetGoalsByIDs", ctx, userID, []string{"goal1", "goal2", "goal3"}).Return(newProgress, nil).Once()
+	// Phase 10 Optimization: No GetGoalsByIDs() after insert
+	// We return the data we just created instead of re-fetching from DB
 
 	// Mock GetGoalByID for mapToAssignedGoals
-	mockCache.On("GetGoalByID", "goal1").Return(allGoals[0])
-	mockCache.On("GetGoalByID", "goal2").Return(allGoals[1])
-	mockCache.On("GetGoalByID", "goal3").Return(allGoals[2])
+	mockCache.On("GetGoalByID", "goal1").Return(defaultGoals[0])
+	mockCache.On("GetGoalByID", "goal2").Return(defaultGoals[1])
 
 	// Execute
 	result, err := InitializePlayer(ctx, userID, namespace, mockCache, mockRepo)
@@ -177,9 +119,9 @@ func TestInitializePlayer_FirstLogin(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.Equal(t, 3, result.NewAssignments)    // 3 new goal rows created
-	assert.Equal(t, 2, result.TotalActive)       // Only 2 are active
-	assert.Len(t, result.AssignedGoals, 3)       // All 3 goals returned
+	assert.Equal(t, 2, result.NewAssignments) // 2 new goal rows created (only default-assigned)
+	assert.Equal(t, 2, result.TotalActive)    // Both are active
+	assert.Len(t, result.AssignedGoals, 2)    // Only 2 default-assigned goals returned
 
 	// Validate first assigned goal (active)
 	ag1 := result.AssignedGoals[0]
@@ -193,22 +135,18 @@ func TestInitializePlayer_FirstLogin(t *testing.T) {
 	assert.Equal(t, 1, ag1.Target)
 	assert.Equal(t, "not_started", ag1.Status)
 
-	// M3: Validate third assigned goal (INACTIVE)
-	ag3 := result.AssignedGoals[2]
-	assert.Equal(t, "goal3", ag3.GoalID)
-	assert.False(t, ag3.IsActive) // Inactive goal still returned in response
-
 	mockCache.AssertExpectations(t)
 	mockRepo.AssertExpectations(t)
 }
 
-// Test InitializePlayer - Happy Path: Subsequent Login (fast path)
+// Test InitializePlayer - Happy Path: Subsequent Login (M3 Phase 9: Fast Path)
+// Phase 9: Uses GetUserGoalCount() to detect existing user, then GetActiveGoals() instead of GetGoalsByIDs
 func TestInitializePlayer_SubsequentLogin_FastPath(t *testing.T) {
 	ctx := context.Background()
 	userID := "user123"
 	namespace := "test-namespace"
 
-	allGoals := []*domain.Goal{
+	defaultGoals := []*domain.Goal{
 		{
 			ID:              "goal1",
 			ChallengeID:     "challenge1",
@@ -247,13 +185,14 @@ func TestInitializePlayer_SubsequentLogin_FastPath(t *testing.T) {
 	mockCache := new(MockGoalCache)
 	mockRepo := new(MockGoalRepository)
 
-	mockCache.On("GetAllGoals").Return(allGoals)
-	mockCache.On("GetGoalByID", "goal1").Return(allGoals[0])
+	mockCache.On("GetGoalsWithDefaultAssigned").Return(defaultGoals)
+	mockCache.On("GetGoalByID", "goal1").Return(defaultGoals[0])
 
-	// User already has all goals - fast path!
-	mockRepo.On("GetGoalsByIDs", ctx, userID, []string{"goal1"}).Return(existingProgress, nil)
+	// M3 Phase 9: Fast path check - user already initialized (count > 0)
+	mockRepo.On("GetUserGoalCount", ctx, userID).Return(1, nil)
 
-	// BulkInsert should NOT be called (fast path)
+	// M3 Phase 9: Fast path - use GetActiveGoals() instead of GetGoalsByIDs()
+	mockRepo.On("GetActiveGoals", ctx, userID).Return(existingProgress, nil)
 
 	// Execute
 	result, err := InitializePlayer(ctx, userID, namespace, mockCache, mockRepo)
@@ -274,59 +213,46 @@ func TestInitializePlayer_SubsequentLogin_FastPath(t *testing.T) {
 
 	mockCache.AssertExpectations(t)
 	mockRepo.AssertExpectations(t)
-	// Verify BulkInsert was NOT called
+	// Verify BulkInsert was NOT called (fast path)
 	mockRepo.AssertNotCalled(t, "BulkInsert")
+	// Verify GetGoalsByIDs was NOT called (fast path uses GetActiveGoals instead)
+	mockRepo.AssertNotCalled(t, "GetGoalsByIDs")
 }
 
-// Test InitializePlayer - Config Updated (2 new goals added)
-func TestInitializePlayer_ConfigUpdated_NewGoalsAdded(t *testing.T) {
+// Test InitializePlayer - Returning User with Active Goals (M3 Phase 9: Fast Path)
+// Phase 9: Fast path returns active goals only, does NOT check for new default goals
+// This is the expected behavior - config updates require re-initialization logic elsewhere
+func TestInitializePlayer_ReturningUser_ActiveGoals(t *testing.T) {
 	ctx := context.Background()
 	userID := "user123"
 	namespace := "test-namespace"
 
-	// Config now has 3 goals (user only has 1)
-	allGoals := []*domain.Goal{
+	// Config has 3 default-assigned goals
+	defaultGoals := []*domain.Goal{
 		{ID: "goal1", ChallengeID: "challenge1", Name: "Old Goal 1", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
-		{ID: "goal2", ChallengeID: "challenge1", Name: "New Goal 2", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceStatistic, Requirement: domain.Requirement{StatCode: "stat1", Operator: ">=", TargetValue: 5}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item2", Quantity: 1}},
-		{ID: "goal3", ChallengeID: "challenge2", Name: "New Goal 3", DefaultAssigned: false, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceStatistic, Requirement: domain.Requirement{StatCode: "stat2", Operator: ">=", TargetValue: 10}, Reward: domain.Reward{Type: string(domain.RewardTypeWallet), RewardID: "GEMS", Quantity: 100}},
+		{ID: "goal2", ChallengeID: "challenge1", Name: "Goal 2", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceStatistic, Requirement: domain.Requirement{StatCode: "stat1", Operator: ">=", TargetValue: 5}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item2", Quantity: 1}},
+		{ID: "goal3", ChallengeID: "challenge2", Name: "Goal 3", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceStatistic, Requirement: domain.Requirement{StatCode: "stat2", Operator: ">=", TargetValue: 10}, Reward: domain.Reward{Type: string(domain.RewardTypeWallet), RewardID: "GEMS", Quantity: 100}},
 	}
 
 	now := time.Now()
-	existingProgress := []*domain.UserGoalProgress{
+	// User has all 3 goals, 2 are active
+	activeProgress := []*domain.UserGoalProgress{
 		{UserID: userID, GoalID: "goal1", ChallengeID: "challenge1", Namespace: namespace, Progress: 1, Status: domain.GoalStatusCompleted, IsActive: true, AssignedAt: &now, ExpiresAt: nil},
+		{UserID: userID, GoalID: "goal2", ChallengeID: "challenge1", Namespace: namespace, Progress: 3, Status: domain.GoalStatusInProgress, IsActive: true, AssignedAt: &now, ExpiresAt: nil},
 	}
 
 	mockCache := new(MockGoalCache)
 	mockRepo := new(MockGoalRepository)
 
-	mockCache.On("GetAllGoals").Return(allGoals)
-	mockCache.On("GetGoalByID", "goal1").Return(allGoals[0])
-	mockCache.On("GetGoalByID", "goal2").Return(allGoals[1])
-	mockCache.On("GetGoalByID", "goal3").Return(allGoals[2])
+	mockCache.On("GetGoalsWithDefaultAssigned").Return(defaultGoals)
+	mockCache.On("GetGoalByID", "goal1").Return(defaultGoals[0])
+	mockCache.On("GetGoalByID", "goal2").Return(defaultGoals[1])
 
-	// First query - user has only goal1
-	mockRepo.On("GetGoalsByIDs", ctx, userID, []string{"goal1", "goal2", "goal3"}).Return(existingProgress, nil).Once()
+	// M3 Phase 9: User already initialized (count > 0) - takes fast path
+	mockRepo.On("GetUserGoalCount", ctx, userID).Return(3, nil)
 
-	// Expect bulk insert for 2 missing goals (1 active, 1 inactive)
-	mockRepo.On("BulkInsert", ctx, mock.MatchedBy(func(progresses []*domain.UserGoalProgress) bool {
-		if len(progresses) != 2 {
-			return false
-		}
-		// Verify goal2 is active, goal3 is inactive
-		assert.Equal(t, "goal2", progresses[0].GoalID)
-		assert.True(t, progresses[0].IsActive)
-		assert.Equal(t, "goal3", progresses[1].GoalID)
-		assert.False(t, progresses[1].IsActive)
-		return true
-	})).Return(nil)
-
-	// After insert, return all 3 goals
-	allProgress := []*domain.UserGoalProgress{
-		existingProgress[0],
-		{UserID: userID, GoalID: "goal2", ChallengeID: "challenge1", Namespace: namespace, Progress: 0, Status: domain.GoalStatusNotStarted, IsActive: true, AssignedAt: &now, ExpiresAt: nil},
-		{UserID: userID, GoalID: "goal3", ChallengeID: "challenge2", Namespace: namespace, Progress: 0, Status: domain.GoalStatusNotStarted, IsActive: false, AssignedAt: &now, ExpiresAt: nil},
-	}
-	mockRepo.On("GetGoalsByIDs", ctx, userID, []string{"goal1", "goal2", "goal3"}).Return(allProgress, nil).Once()
+	// M3 Phase 9: Fast path - returns only active goals
+	mockRepo.On("GetActiveGoals", ctx, userID).Return(activeProgress, nil)
 
 	// Execute
 	result, err := InitializePlayer(ctx, userID, namespace, mockCache, mockRepo)
@@ -334,15 +260,19 @@ func TestInitializePlayer_ConfigUpdated_NewGoalsAdded(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.Equal(t, 2, result.NewAssignments) // 2 new goals added
-	assert.Equal(t, 2, result.TotalActive)    // Only goal1 and goal2 are active
-	assert.Len(t, result.AssignedGoals, 3)    // All 3 goals returned
+	assert.Equal(t, 0, result.NewAssignments) // No new assignments (fast path)
+	assert.Equal(t, 2, result.TotalActive)    // 2 active goals
+	assert.Len(t, result.AssignedGoals, 2)    // Only active goals returned
 
 	mockCache.AssertExpectations(t)
 	mockRepo.AssertExpectations(t)
+	// Verify GetGoalsByIDs was NOT called (fast path)
+	mockRepo.AssertNotCalled(t, "GetGoalsByIDs")
+	mockRepo.AssertNotCalled(t, "BulkInsert")
 }
 
-// Test InitializePlayer - No Goals Configured
+// Test InitializePlayer - No Default Goals Configured (M3 Phase 9)
+// Phase 9: Early return if no default-assigned goals configured
 func TestInitializePlayer_NoDefaultGoals(t *testing.T) {
 	ctx := context.Background()
 	userID := "user123"
@@ -351,8 +281,8 @@ func TestInitializePlayer_NoDefaultGoals(t *testing.T) {
 	mockCache := new(MockGoalCache)
 	mockRepo := new(MockGoalRepository)
 
-	// No goals configured
-	mockCache.On("GetAllGoals").Return([]*domain.Goal{})
+	// No default-assigned goals configured
+	mockCache.On("GetGoalsWithDefaultAssigned").Return([]*domain.Goal{})
 
 	// Execute
 	result, err := InitializePlayer(ctx, userID, namespace, mockCache, mockRepo)
@@ -365,7 +295,9 @@ func TestInitializePlayer_NoDefaultGoals(t *testing.T) {
 	assert.Len(t, result.AssignedGoals, 0)
 
 	mockCache.AssertExpectations(t)
-	// Repository should NOT be called at all
+	// Repository should NOT be called at all (early return)
+	mockRepo.AssertNotCalled(t, "GetUserGoalCount")
+	mockRepo.AssertNotCalled(t, "GetActiveGoals")
 	mockRepo.AssertNotCalled(t, "GetGoalsByIDs")
 	mockRepo.AssertNotCalled(t, "BulkInsert")
 }
@@ -438,23 +370,23 @@ func TestInitializePlayer_NilRepository(t *testing.T) {
 	assert.Contains(t, err.Error(), "repository cannot be nil")
 }
 
-// Test InitializePlayer - Database Error: GetGoalsByIDs fails
-func TestInitializePlayer_GetGoalsByIDsError(t *testing.T) {
+// Test InitializePlayer - Database Error: GetUserGoalCount fails (M3 Phase 9)
+func TestInitializePlayer_GetUserGoalCountError(t *testing.T) {
 	ctx := context.Background()
 	userID := "user123"
 	namespace := "test-namespace"
 
-	allGoals := []*domain.Goal{
+	defaultGoals := []*domain.Goal{
 		{ID: "goal1", ChallengeID: "challenge1", Name: "Goal 1", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
 	}
 
 	mockCache := new(MockGoalCache)
 	mockRepo := new(MockGoalRepository)
 
-	mockCache.On("GetAllGoals").Return(allGoals)
+	mockCache.On("GetGoalsWithDefaultAssigned").Return(defaultGoals)
 
-	// Simulate database error
-	mockRepo.On("GetGoalsByIDs", ctx, userID, []string{"goal1"}).Return(nil, errors.New("database connection failed"))
+	// Simulate database error on count check
+	mockRepo.On("GetUserGoalCount", ctx, userID).Return(0, errors.New("database connection failed"))
 
 	// Execute
 	result, err := InitializePlayer(ctx, userID, namespace, mockCache, mockRepo)
@@ -462,29 +394,68 @@ func TestInitializePlayer_GetGoalsByIDsError(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "failed to get existing goals")
+	assert.Contains(t, err.Error(), "failed to get user goal count")
 
 	mockCache.AssertExpectations(t)
 	mockRepo.AssertExpectations(t)
 }
 
-// Test InitializePlayer - Database Error: BulkInsert fails
-func TestInitializePlayer_BulkInsertError(t *testing.T) {
+// Test InitializePlayer - Database Error: GetActiveGoals fails (M3 Phase 9)
+func TestInitializePlayer_GetActiveGoalsError(t *testing.T) {
 	ctx := context.Background()
 	userID := "user123"
 	namespace := "test-namespace"
 
-	allGoals := []*domain.Goal{
+	defaultGoals := []*domain.Goal{
 		{ID: "goal1", ChallengeID: "challenge1", Name: "Goal 1", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
 	}
 
 	mockCache := new(MockGoalCache)
 	mockRepo := new(MockGoalRepository)
 
-	mockCache.On("GetAllGoals").Return(allGoals)
+	mockCache.On("GetGoalsWithDefaultAssigned").Return(defaultGoals)
 
-	// No existing goals
-	mockRepo.On("GetGoalsByIDs", ctx, userID, []string{"goal1"}).Return([]*domain.UserGoalProgress{}, nil).Once()
+	// User already initialized
+	mockRepo.On("GetUserGoalCount", ctx, userID).Return(1, nil)
+
+	// Simulate database error on GetActiveGoals
+	mockRepo.On("GetActiveGoals", ctx, userID).Return(nil, errors.New("connection lost"))
+
+	// Execute
+	result, err := InitializePlayer(ctx, userID, namespace, mockCache, mockRepo)
+
+	// Assert
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "failed to get active goals")
+
+	mockCache.AssertExpectations(t)
+	mockRepo.AssertExpectations(t)
+}
+
+// Phase 10: TestInitializePlayer_GetGoalsByIDsError removed
+// Reason: We no longer call GetGoalsByIDs() when userGoalCount == 0 (optimization)
+// The query was redundant since we already know the user has no goals
+
+// Test InitializePlayer - Database Error: BulkInsert fails (M3 Phase 9)
+func TestInitializePlayer_BulkInsertError(t *testing.T) {
+	ctx := context.Background()
+	userID := "user123"
+	namespace := "test-namespace"
+
+	defaultGoals := []*domain.Goal{
+		{ID: "goal1", ChallengeID: "challenge1", Name: "Goal 1", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
+	}
+
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+
+	mockCache.On("GetGoalsWithDefaultAssigned").Return(defaultGoals)
+
+	// User not initialized
+	mockRepo.On("GetUserGoalCount", ctx, userID).Return(0, nil)
+
+	// Phase 10: No GetGoalsByIDs call (optimization removed it)
 
 	// Simulate bulk insert failure
 	mockRepo.On("BulkInsert", ctx, mock.Anything).Return(errors.New("unique constraint violation"))
@@ -501,41 +472,9 @@ func TestInitializePlayer_BulkInsertError(t *testing.T) {
 	mockRepo.AssertExpectations(t)
 }
 
-// Test InitializePlayer - Database Error: Final GetGoalsByIDs fails
-func TestInitializePlayer_FinalGetGoalsByIDsError(t *testing.T) {
-	ctx := context.Background()
-	userID := "user123"
-	namespace := "test-namespace"
-
-	allGoals := []*domain.Goal{
-		{ID: "goal1", ChallengeID: "challenge1", Name: "Goal 1", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
-	}
-
-	mockCache := new(MockGoalCache)
-	mockRepo := new(MockGoalRepository)
-
-	mockCache.On("GetAllGoals").Return(allGoals)
-
-	// First query - no existing goals
-	mockRepo.On("GetGoalsByIDs", ctx, userID, []string{"goal1"}).Return([]*domain.UserGoalProgress{}, nil).Once()
-
-	// Bulk insert succeeds
-	mockRepo.On("BulkInsert", ctx, mock.Anything).Return(nil)
-
-	// Final query fails
-	mockRepo.On("GetGoalsByIDs", ctx, userID, []string{"goal1"}).Return(nil, errors.New("connection lost")).Once()
-
-	// Execute
-	result, err := InitializePlayer(ctx, userID, namespace, mockCache, mockRepo)
-
-	// Assert
-	require.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "failed to fetch assigned goals")
-
-	mockCache.AssertExpectations(t)
-	mockRepo.AssertExpectations(t)
-}
+// Phase 10: TestInitializePlayer_FinalGetGoalsByIDsError removed
+// Reason: We no longer call GetGoalsByIDs() after insert (optimization)
+// We return the data we just created instead of re-fetching from database
 
 // Test mapToAssignedGoals - Goal Not Found in Cache (defensive)
 func TestMapToAssignedGoals_GoalNotFoundInCache(t *testing.T) {

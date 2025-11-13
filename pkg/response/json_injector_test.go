@@ -201,7 +201,9 @@ func TestInjectProgressIntoChallenge(t *testing.T) {
 		},
 	}
 
-	result, err := InjectProgressIntoChallenge(staticJSON, progress)
+	goalCount := 2
+
+	result, err := InjectProgressIntoChallenge(staticJSON, progress, goalCount)
 	if err != nil {
 		t.Fatalf("InjectProgressIntoChallenge failed: %v", err)
 	}
@@ -255,7 +257,9 @@ func TestInjectProgressIntoChallenge(t *testing.T) {
 func TestInjectProgressIntoChallenge_NoGoals(t *testing.T) {
 	staticJSON := []byte(`{"challengeId":"daily","name":"Daily Challenge"}`)
 
-	result, err := InjectProgressIntoChallenge(staticJSON, nil)
+	goalCount := 0
+
+	result, err := InjectProgressIntoChallenge(staticJSON, nil, goalCount)
 	if err != nil {
 		t.Fatalf("InjectProgressIntoChallenge failed: %v", err)
 	}
@@ -285,7 +289,9 @@ func TestInjectProgressIntoChallenge_MissingProgress(t *testing.T) {
 		},
 	}
 
-	result, err := InjectProgressIntoChallenge(staticJSON, progress)
+	goalCount := 2
+
+	result, err := InjectProgressIntoChallenge(staticJSON, progress, goalCount)
 	if err != nil {
 		t.Fatalf("InjectProgressIntoChallenge failed: %v", err)
 	}
@@ -459,8 +465,10 @@ func BenchmarkInjectProgressIntoChallenge(b *testing.B) {
 		"g5": {GoalID: "g5", Progress: 25, Status: "in_progress"},
 	}
 
+	goalCount := 5
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = InjectProgressIntoChallenge(staticJSON, progress)
+		_, _ = InjectProgressIntoChallenge(staticJSON, progress, goalCount)
 	}
 }

@@ -161,6 +161,20 @@ func (m *MockGoalRepository) UpsertGoalActive(ctx context.Context, progress *dom
 	return args.Error(0)
 }
 
+// M3 Phase 9: Fast path optimization methods
+func (m *MockGoalRepository) GetUserGoalCount(ctx context.Context, userID string) (int, error) {
+	args := m.Called(ctx, userID)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *MockGoalRepository) GetActiveGoals(ctx context.Context, userID string) ([]*domain.UserGoalProgress, error) {
+	args := m.Called(ctx, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.UserGoalProgress), args.Error(1)
+}
+
 type MockTxGoalRepository struct {
 	mock.Mock
 }
@@ -269,6 +283,20 @@ func (m *MockTxGoalRepository) BulkInsert(ctx context.Context, progresses []*dom
 func (m *MockTxGoalRepository) UpsertGoalActive(ctx context.Context, progress *domain.UserGoalProgress) error {
 	args := m.Called(ctx, progress)
 	return args.Error(0)
+}
+
+// M3 Phase 9: Fast path optimization methods
+func (m *MockTxGoalRepository) GetUserGoalCount(ctx context.Context, userID string) (int, error) {
+	args := m.Called(ctx, userID)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *MockTxGoalRepository) GetActiveGoals(ctx context.Context, userID string) ([]*domain.UserGoalProgress, error) {
+	args := m.Called(ctx, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.UserGoalProgress), args.Error(1)
 }
 
 type MockRewardClient struct {
@@ -506,21 +534,16 @@ func TestInitializePlayer_Success(t *testing.T) {
 	// Mock: No existing progress (new player)
 	mockCache.On("GetGoalsWithDefaultAssigned").Return(defaultGoals)
 	mockCache.On("GetGoalByID", "daily-login").Return(defaultGoals[0])
-	mockRepo.On("GetGoalsByIDs", mock.Anything, "new-user", []string{"daily-login"}).Return([]*domain.UserGoalProgress{}, nil).Once()
+	// M3 Phase 9: Fast path check - user not initialized
+	mockRepo.On("GetUserGoalCount", mock.Anything, "new-user").Return(0, nil)
+
+	// Phase 10: No GetGoalsByIDs() call when count == 0 (optimization)
+
 	mockRepo.On("BulkInsert", mock.Anything, mock.MatchedBy(func(progress []*domain.UserGoalProgress) bool {
 		return len(progress) == 1 && progress[0].GoalID == "daily-login" && progress[0].IsActive
 	})).Return(nil)
-	mockRepo.On("GetGoalsByIDs", mock.Anything, "new-user", []string{"daily-login"}).Return([]*domain.UserGoalProgress{
-		{
-			UserID:      "new-user",
-			GoalID:      "daily-login",
-			ChallengeID: "daily-challenge",
-			Namespace:   "test-namespace",
-			Progress:    0,
-			Status:      domain.GoalStatusNotStarted,
-			IsActive:    true,
-		},
-	}, nil).Once()
+
+	// Phase 10: No GetGoalsByIDs() after insert (return created data directly)
 
 	ctx := createAuthContext("new-user", "test-namespace")
 	req := &pb.InitializeRequest{}
@@ -579,7 +602,14 @@ func TestInitializePlayer_ServiceError(t *testing.T) {
 			DefaultAssigned: true,
 		},
 	})
-	mockRepo.On("GetGoalsByIDs", mock.Anything, "user123", []string{"test-goal"}).Return(nil, errors.New("database error"))
+	// Phase 10: No GetGoalByID() mock needed - when BulkInsert fails, function returns early
+	// without calling mapToAssignedGoals() which would use GetGoalByID()
+
+	// M3 Phase 9: Fast path check - user not initialized
+	mockRepo.On("GetUserGoalCount", mock.Anything, "user123").Return(0, nil)
+
+	// Phase 10: No GetGoalsByIDs() call, test BulkInsert error instead
+	mockRepo.On("BulkInsert", mock.Anything, mock.Anything).Return(errors.New("database error"))
 
 	ctx := createAuthContext("user123", "test-namespace")
 	req := &pb.InitializeRequest{}

@@ -2,6 +2,7 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +11,27 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// assertTimestampsEqual compares two RFC3339 timestamp strings as time values
+// This ensures timezone-agnostic comparison (e.g., "2025-11-11T13:11:39Z" == "2025-11-11T20:11:39+07:00")
+func assertTimestampsEqualHTTP(t *testing.T, expected, actual string, msgAndArgs ...interface{}) {
+	t.Helper()
+
+	expectedTime, err := time.Parse(time.RFC3339, expected)
+	require.NoError(t, err, "Failed to parse expected timestamp: %s", expected)
+
+	actualTime, err := time.Parse(time.RFC3339, actual)
+	require.NoError(t, err, "Failed to parse actual timestamp: %s", actual)
+
+	if !expectedTime.Equal(actualTime) {
+		msg := fmt.Sprintf("Timestamps not equal:\n  Expected: %s (%s)\n  Actual:   %s (%s)",
+			expected, expectedTime.UTC(), actual, actualTime.UTC())
+		if len(msgAndArgs) > 0 {
+			msg = fmt.Sprintf("%v\n%s", msgAndArgs[0], msg)
+		}
+		t.Error(msg)
+	}
+}
 
 // TestInitializePlayer_FirstLogin_HTTP verifies that a new player receives default goals via HTTP
 func TestInitializePlayer_FirstLogin_HTTP(t *testing.T) {
@@ -118,7 +140,7 @@ func TestInitializePlayer_SubsequentLogin_FastPath_HTTP(t *testing.T) {
 	// Verify same goal is returned
 	goal2 := assignedGoals2[0].(map[string]interface{})
 	assert.Equal(t, "complete-tutorial", goal2["goalId"], "Same goal should be returned")
-	assert.Equal(t, firstAssignedAt, goal2["assignedAt"], "AssignedAt timestamp should not change")
+	assertTimestampsEqualHTTP(t, firstAssignedAt, goal2["assignedAt"].(string), "AssignedAt timestamp should not change")
 	assert.Equal(t, "not_started", goal2["status"], "Status should remain unchanged")
 	assert.Equal(t, float64(0), goal2["progress"], "Progress should remain unchanged")
 }
@@ -168,7 +190,7 @@ func TestInitializePlayer_Idempotency_HTTP(t *testing.T) {
 		goal := responses[i]["assignedGoals"].([]interface{})[0].(map[string]interface{})
 		assert.Equal(t, firstGoal["goalId"], goal["goalId"],
 			"All calls should return the same goal")
-		assert.Equal(t, firstGoal["assignedAt"], goal["assignedAt"],
+		assertTimestampsEqualHTTP(t, firstGoal["assignedAt"].(string), goal["assignedAt"].(string),
 			"AssignedAt timestamp should remain constant")
 	}
 }

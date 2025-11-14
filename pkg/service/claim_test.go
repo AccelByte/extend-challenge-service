@@ -136,6 +136,11 @@ func (m *MockTxRepository) BulkInsert(ctx context.Context, progresses []*domain.
 	return args.Error(0)
 }
 
+func (m *MockTxRepository) BulkInsertWithCOPY(ctx context.Context, progresses []*domain.UserGoalProgress) error {
+	args := m.Called(ctx, progresses)
+	return args.Error(0)
+}
+
 // M3 Phase 9: Fast path optimization methods
 func (m *MockTxRepository) GetUserGoalCount(ctx context.Context, userID string) (int, error) {
 	args := m.Called(ctx, userID)

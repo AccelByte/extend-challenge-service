@@ -27,6 +27,8 @@ const (
 	Service_InitializePlayer_FullMethodName  = "/service.Service/InitializePlayer"
 	Service_SetGoalActive_FullMethodName     = "/service.Service/SetGoalActive"
 	Service_ClaimGoalReward_FullMethodName   = "/service.Service/ClaimGoalReward"
+	Service_BatchSelectGoals_FullMethodName  = "/service.Service/BatchSelectGoals"
+	Service_RandomSelectGoals_FullMethodName = "/service.Service/RandomSelectGoals"
 	Service_HealthCheck_FullMethodName       = "/service.Service/HealthCheck"
 )
 
@@ -35,6 +37,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ServiceClient interface {
 	// Get all challenges with user progress
+	// NOTE: HTTP endpoint uses OptimizedChallengesHandler (see docs/ADR_001_OPTIMIZED_HTTP_HANDLER.md)
 	GetUserChallenges(ctx context.Context, in *GetChallengesRequest, opts ...grpc.CallOption) (*GetChallengesResponse, error)
 	// Initialize player with default goals (M3 Phase 2)
 	InitializePlayer(ctx context.Context, in *InitializeRequest, opts ...grpc.CallOption) (*InitializeResponse, error)
@@ -42,6 +45,10 @@ type ServiceClient interface {
 	SetGoalActive(ctx context.Context, in *SetGoalActiveRequest, opts ...grpc.CallOption) (*SetGoalActiveResponse, error)
 	// Claim reward for completed goal
 	ClaimGoalReward(ctx context.Context, in *ClaimRewardRequest, opts ...grpc.CallOption) (*ClaimRewardResponse, error)
+	// M4: Batch manual goal selection
+	BatchSelectGoals(ctx context.Context, in *BatchSelectRequest, opts ...grpc.CallOption) (*GoalSelectionResponse, error)
+	// M4: Random goal selection
+	RandomSelectGoals(ctx context.Context, in *RandomSelectRequest, opts ...grpc.CallOption) (*GoalSelectionResponse, error)
 	// Health check endpoint (Decision FQ5)
 	HealthCheck(ctx context.Context, in *HealthCheckRequest, opts ...grpc.CallOption) (*HealthCheckResponse, error)
 }
@@ -90,6 +97,24 @@ func (c *serviceClient) ClaimGoalReward(ctx context.Context, in *ClaimRewardRequ
 	return out, nil
 }
 
+func (c *serviceClient) BatchSelectGoals(ctx context.Context, in *BatchSelectRequest, opts ...grpc.CallOption) (*GoalSelectionResponse, error) {
+	out := new(GoalSelectionResponse)
+	err := c.cc.Invoke(ctx, Service_BatchSelectGoals_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *serviceClient) RandomSelectGoals(ctx context.Context, in *RandomSelectRequest, opts ...grpc.CallOption) (*GoalSelectionResponse, error) {
+	out := new(GoalSelectionResponse)
+	err := c.cc.Invoke(ctx, Service_RandomSelectGoals_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *serviceClient) HealthCheck(ctx context.Context, in *HealthCheckRequest, opts ...grpc.CallOption) (*HealthCheckResponse, error) {
 	out := new(HealthCheckResponse)
 	err := c.cc.Invoke(ctx, Service_HealthCheck_FullMethodName, in, out, opts...)
@@ -104,6 +129,7 @@ func (c *serviceClient) HealthCheck(ctx context.Context, in *HealthCheckRequest,
 // for forward compatibility
 type ServiceServer interface {
 	// Get all challenges with user progress
+	// NOTE: HTTP endpoint uses OptimizedChallengesHandler (see docs/ADR_001_OPTIMIZED_HTTP_HANDLER.md)
 	GetUserChallenges(context.Context, *GetChallengesRequest) (*GetChallengesResponse, error)
 	// Initialize player with default goals (M3 Phase 2)
 	InitializePlayer(context.Context, *InitializeRequest) (*InitializeResponse, error)
@@ -111,6 +137,10 @@ type ServiceServer interface {
 	SetGoalActive(context.Context, *SetGoalActiveRequest) (*SetGoalActiveResponse, error)
 	// Claim reward for completed goal
 	ClaimGoalReward(context.Context, *ClaimRewardRequest) (*ClaimRewardResponse, error)
+	// M4: Batch manual goal selection
+	BatchSelectGoals(context.Context, *BatchSelectRequest) (*GoalSelectionResponse, error)
+	// M4: Random goal selection
+	RandomSelectGoals(context.Context, *RandomSelectRequest) (*GoalSelectionResponse, error)
 	// Health check endpoint (Decision FQ5)
 	HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error)
 	mustEmbedUnimplementedServiceServer()
@@ -131,6 +161,12 @@ func (UnimplementedServiceServer) SetGoalActive(context.Context, *SetGoalActiveR
 }
 func (UnimplementedServiceServer) ClaimGoalReward(context.Context, *ClaimRewardRequest) (*ClaimRewardResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ClaimGoalReward not implemented")
+}
+func (UnimplementedServiceServer) BatchSelectGoals(context.Context, *BatchSelectRequest) (*GoalSelectionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BatchSelectGoals not implemented")
+}
+func (UnimplementedServiceServer) RandomSelectGoals(context.Context, *RandomSelectRequest) (*GoalSelectionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RandomSelectGoals not implemented")
 }
 func (UnimplementedServiceServer) HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method HealthCheck not implemented")
@@ -220,6 +256,42 @@ func _Service_ClaimGoalReward_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Service_BatchSelectGoals_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchSelectRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServiceServer).BatchSelectGoals(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Service_BatchSelectGoals_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServiceServer).BatchSelectGoals(ctx, req.(*BatchSelectRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Service_RandomSelectGoals_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RandomSelectRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServiceServer).RandomSelectGoals(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Service_RandomSelectGoals_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServiceServer).RandomSelectGoals(ctx, req.(*RandomSelectRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Service_HealthCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(HealthCheckRequest)
 	if err := dec(in); err != nil {
@@ -260,6 +332,14 @@ var Service_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ClaimGoalReward",
 			Handler:    _Service_ClaimGoalReward_Handler,
+		},
+		{
+			MethodName: "BatchSelectGoals",
+			Handler:    _Service_BatchSelectGoals_Handler,
+		},
+		{
+			MethodName: "RandomSelectGoals",
+			Handler:    _Service_RandomSelectGoals_Handler,
 		},
 		{
 			MethodName: "HealthCheck",

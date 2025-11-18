@@ -93,6 +93,44 @@ service Service {
     };
   }
 
+  // M4: Batch manual goal selection
+  rpc BatchSelectGoals (BatchSelectRequest) returns (GoalSelectionResponse) {
+    option (google.api.http) = {
+      post: "/v1/challenges/{challenge_id}/goals/batch-select"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Batch select goals";
+      description: "Activate multiple player-selected goals at once (atomic operation)";
+      tags: "Challenges";
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+
+  // M4: Random goal selection
+  rpc RandomSelectGoals (RandomSelectRequest) returns (GoalSelectionResponse) {
+    option (google.api.http) = {
+      post: "/v1/challenges/{challenge_id}/goals/random-select"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Random select goals";
+      description: "Randomly select N goals from a challenge and activate them";
+      tags: "Challenges";
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+
   // Health check endpoint (Decision FQ5)
   rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse) {
     option (google.api.http) = {
@@ -158,6 +196,44 @@ message HealthCheckRequest {}
 
 message HealthCheckResponse {
   string status = 1;
+}
+
+// M4: Batch select request
+message BatchSelectRequest {
+  string challenge_id = 1;
+  repeated string goal_ids = 2;
+  bool replace_existing = 3;
+}
+
+// M4: Random select request
+message RandomSelectRequest {
+  string challenge_id = 1;
+  int32 count = 2;
+  bool replace_existing = 3;
+  bool exclude_active = 4;
+}
+
+// M4: Goal selection response (shared by batch and random)
+message GoalSelectionResponse {
+  repeated SelectedGoal selected_goals = 1;
+  string challenge_id = 2;
+  int32 total_active_goals = 3;
+  repeated string replaced_goals = 4;
+}
+
+// M4: Selected goal info
+message SelectedGoal {
+  string goal_id = 1;
+  string name = 2;
+  string description = 3;
+  Requirement requirement = 4;
+  Reward reward = 5;
+  string status = 6;
+  int32 progress = 7;
+  int32 target = 8;
+  bool is_active = 9;
+  string assigned_at = 10;
+  string expires_at = 11;
 }
 
 // Domain Models

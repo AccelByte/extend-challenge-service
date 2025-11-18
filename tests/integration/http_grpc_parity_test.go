@@ -203,12 +203,12 @@ func convertToPbChallenge(ch *commonDomain.Challenge) *pb.Challenge {
 			Requirement: &pb.Requirement{
 				StatCode:    goal.Requirement.StatCode,
 				Operator:    goal.Requirement.Operator,
-				TargetValue: int32(goal.Requirement.TargetValue),
+				TargetValue: int32(goal.Requirement.TargetValue), // #nosec G115 - Test data, safe conversion
 			},
 			Reward: &pb.Reward{
 				Type:     goal.Reward.Type,
 				RewardId: goal.Reward.RewardID,
-				Quantity: int32(goal.Reward.Quantity),
+				Quantity: int32(goal.Reward.Quantity), // #nosec G115 - Test data, safe conversion
 			},
 		}
 	}

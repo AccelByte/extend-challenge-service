@@ -169,7 +169,7 @@ func TestSetGoalActive_ActivateThenDeactivate_HTTP(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w1.Code, "Activation should succeed")
 	var resp1 map[string]interface{}
-	json.NewDecoder(w1.Body).Decode(&resp1)
+	_ = json.NewDecoder(w1.Body).Decode(&resp1)
 	assert.Equal(t, true, resp1["isActive"])
 
 	// Step 2: Verify goal is active in GetUserChallenges
@@ -180,7 +180,7 @@ func TestSetGoalActive_ActivateThenDeactivate_HTTP(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w2.Code)
 	var challenges map[string]interface{}
-	json.NewDecoder(w2.Body).Decode(&challenges)
+	_ = json.NewDecoder(w2.Body).Decode(&challenges)
 
 	// Find the activated goal
 	challengeList := challenges["challenges"].([]interface{})
@@ -215,7 +215,7 @@ func TestSetGoalActive_ActivateThenDeactivate_HTTP(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w3.Code, "Deactivation should succeed")
 	var resp3 map[string]interface{}
-	json.NewDecoder(w3.Body).Decode(&resp3)
+	_ = json.NewDecoder(w3.Body).Decode(&resp3)
 	assert.Equal(t, false, resp3["isActive"])
 }
 
@@ -239,7 +239,7 @@ func TestSetGoalActive_Idempotent_HTTP(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w1.Code, "First activation should succeed")
 	var resp1 map[string]interface{}
-	json.NewDecoder(w1.Body).Decode(&resp1)
+	_ = json.NewDecoder(w1.Body).Decode(&resp1)
 
 	// Second request (need fresh body reader)
 	bodyBytes2, _ := json.Marshal(body)
@@ -251,7 +251,7 @@ func TestSetGoalActive_Idempotent_HTTP(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w2.Code, "Second activation should succeed (idempotent)")
 	var resp2 map[string]interface{}
-	json.NewDecoder(w2.Body).Decode(&resp2)
+	_ = json.NewDecoder(w2.Body).Decode(&resp2)
 
 	// Both should return success
 	assert.Equal(t, true, resp1["isActive"])

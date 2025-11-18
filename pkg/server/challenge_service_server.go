@@ -242,7 +242,7 @@ func (s *ChallengeServiceServer) SetGoalActive(
 			"namespace":    s.namespace,
 			"error":        err,
 		}).Error("Failed to set goal active status")
-		return nil, status.Error(codes.Internal, "failed to set goal active status")
+		return nil, status.Errorf(codes.Internal, "failed to set goal active status: %v", err)
 	}
 
 	// Convert response
@@ -267,6 +267,171 @@ func (s *ChallengeServiceServer) SetGoalActive(
 	}).Info("Successfully set goal active status")
 
 	return response, nil
+}
+
+// BatchSelectGoals activates multiple player-selected goals at once (M4)
+func (s *ChallengeServiceServer) BatchSelectGoals(
+	ctx context.Context,
+	req *pb.BatchSelectRequest,
+) (*pb.GoalSelectionResponse, error) {
+	// Extract user ID from JWT token (already validated by interceptor)
+	userID, err := extractUserIDFromContext(ctx)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to extract user ID from context")
+		return nil, err
+	}
+
+	// Validate request
+	if req.ChallengeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "challenge_id is required")
+	}
+
+	if len(req.GoalIds) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "goal_ids cannot be empty")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":          userID,
+		"challenge_id":     req.ChallengeId,
+		"goal_count":       len(req.GoalIds),
+		"replace_existing": req.ReplaceExisting,
+		"namespace":        s.namespace,
+	}).Info("Batch selecting goals")
+
+	// Call business logic
+	result, err := service.BatchSelectGoals(
+		ctx,
+		userID,
+		req.ChallengeId,
+		req.GoalIds,
+		req.ReplaceExisting,
+		s.namespace,
+		s.goalCache,
+		s.repo,
+	)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"user_id":      userID,
+			"challenge_id": req.ChallengeId,
+			"goal_count":   len(req.GoalIds),
+			"error":        err,
+		}).Error("Failed to batch select goals")
+		return nil, status.Errorf(codes.Internal, "failed to batch select goals: %v", err)
+	}
+
+	// Convert to protobuf response
+	protoSelectedGoals := make([]*pb.SelectedGoal, 0, len(result.SelectedGoals))
+	for _, selectedGoal := range result.SelectedGoals {
+		protoGoal, err := selectedGoalToProto(selectedGoal)
+		if err != nil {
+			logrus.WithFields(logrus.Fields{
+				"user_id": userID,
+				"goal_id": selectedGoal.GoalID,
+				"error":   err,
+			}).Error("Failed to convert selected goal to proto")
+			continue
+		}
+		protoSelectedGoals = append(protoSelectedGoals, protoGoal)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":      userID,
+		"challenge_id": req.ChallengeId,
+		"selected":     len(protoSelectedGoals),
+		"total_active": result.TotalActiveGoals,
+	}).Info("Successfully batch selected goals")
+
+	return &pb.GoalSelectionResponse{
+		SelectedGoals: protoSelectedGoals,
+		ChallengeId:   result.ChallengeID,
+		// #nosec G115 - TotalActiveGoals will never exceed int32 max (limited by goal count)
+		TotalActiveGoals: int32(result.TotalActiveGoals),
+		ReplacedGoals:    result.ReplacedGoals,
+	}, nil
+}
+
+// RandomSelectGoals randomly selects N goals from a challenge and activates them (M4)
+func (s *ChallengeServiceServer) RandomSelectGoals(
+	ctx context.Context,
+	req *pb.RandomSelectRequest,
+) (*pb.GoalSelectionResponse, error) {
+	// Extract user ID from JWT token (already validated by interceptor)
+	userID, err := extractUserIDFromContext(ctx)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to extract user ID from context")
+		return nil, err
+	}
+
+	// Validate request
+	if req.ChallengeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "challenge_id is required")
+	}
+
+	if req.Count <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "count must be greater than 0")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":          userID,
+		"challenge_id":     req.ChallengeId,
+		"count":            req.Count,
+		"replace_existing": req.ReplaceExisting,
+		"exclude_active":   req.ExcludeActive,
+		"namespace":        s.namespace,
+	}).Info("Random selecting goals")
+
+	// Call business logic
+	result, err := service.RandomSelectGoals(
+		ctx,
+		userID,
+		req.ChallengeId,
+		// #nosec G115 - Count is validated to be > 0, safe to convert
+		int(req.Count),
+		req.ReplaceExisting,
+		req.ExcludeActive,
+		s.namespace,
+		s.goalCache,
+		s.repo,
+	)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"user_id":      userID,
+			"challenge_id": req.ChallengeId,
+			"count":        req.Count,
+			"error":        err,
+		}).Error("Failed to random select goals")
+		return nil, status.Errorf(codes.Internal, "failed to random select goals: %v", err)
+	}
+
+	// Convert to protobuf response
+	protoSelectedGoals := make([]*pb.SelectedGoal, 0, len(result.SelectedGoals))
+	for _, selectedGoal := range result.SelectedGoals {
+		protoGoal, err := selectedGoalToProto(selectedGoal)
+		if err != nil {
+			logrus.WithFields(logrus.Fields{
+				"user_id": userID,
+				"goal_id": selectedGoal.GoalID,
+				"error":   err,
+			}).Error("Failed to convert selected goal to proto")
+			continue
+		}
+		protoSelectedGoals = append(protoSelectedGoals, protoGoal)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":      userID,
+		"challenge_id": req.ChallengeId,
+		"selected":     len(protoSelectedGoals),
+		"total_active": result.TotalActiveGoals,
+	}).Info("Successfully random selected goals")
+
+	return &pb.GoalSelectionResponse{
+		SelectedGoals: protoSelectedGoals,
+		ChallengeId:   result.ChallengeID,
+		// #nosec G115 - TotalActiveGoals will never exceed int32 max (limited by goal count)
+		TotalActiveGoals: int32(result.TotalActiveGoals),
+		ReplacedGoals:    result.ReplacedGoals,
+	}, nil
 }
 
 // ClaimGoalReward claims reward for a completed goal
@@ -398,6 +563,59 @@ func assignedGoalToProto(goal *service.AssignedGoal) (*pb.AssignedGoal, error) {
 	}
 
 	// Convert expires_at timestamp (nullable, NULL in M3)
+	if goal.ExpiresAt != nil {
+		protoGoal.ExpiresAt = goal.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+
+	// Convert requirement
+	protoRequirement, err := mapper.RequirementToProto(&goal.Requirement)
+	if err == nil {
+		protoGoal.Requirement = protoRequirement
+	}
+
+	// Convert reward
+	protoReward, err := mapper.RewardToProto(&goal.Reward)
+	if err == nil {
+		protoGoal.Reward = protoReward
+	}
+
+	return protoGoal, nil
+}
+
+// selectedGoalToProto converts a service.SelectedGoalInfo to a protobuf SelectedGoal message.
+//
+// This helper function is used by the BatchSelectGoals and RandomSelectGoals RPCs to convert
+// the service layer's SelectedGoalInfo model to the protobuf representation for the gRPC response.
+//
+// Parameters:
+// - goal: The service layer's SelectedGoalInfo model
+//
+// Returns:
+// - *pb.SelectedGoal: The protobuf representation
+// - error: Conversion error (e.g., timestamp formatting)
+func selectedGoalToProto(goal *service.SelectedGoalInfo) (*pb.SelectedGoal, error) {
+	if goal == nil {
+		return nil, nil
+	}
+
+	protoGoal := &pb.SelectedGoal{
+		GoalId:      goal.GoalID,
+		Name:        goal.Name,
+		Description: goal.Description,
+		Status:      goal.Status,
+		// #nosec G115 - Progress values are bounded by config target values (safe to convert)
+		Progress: int32(goal.Progress),
+		// #nosec G115 - Target values are validated at config load time (safe to convert)
+		Target:   int32(goal.Target),
+		IsActive: goal.IsActive,
+	}
+
+	// Convert assigned_at timestamp (nullable)
+	if goal.AssignedAt != nil {
+		protoGoal.AssignedAt = goal.AssignedAt.UTC().Format(time.RFC3339)
+	}
+
+	// Convert expires_at timestamp (nullable, NULL in M4)
 	if goal.ExpiresAt != nil {
 		protoGoal.ExpiresAt = goal.ExpiresAt.UTC().Format(time.RFC3339)
 	}

@@ -111,7 +111,7 @@ func TestInitializePlayer_SubsequentLogin_FastPath_HTTP(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w1.Code)
 	var resp1 map[string]interface{}
-	json.NewDecoder(w1.Body).Decode(&resp1)
+	_ = json.NewDecoder(w1.Body).Decode(&resp1)
 	assert.Equal(t, float64(1), resp1["newAssignments"], "First call should assign 1 goal")
 
 	// Get assigned_at timestamp from first call
@@ -128,7 +128,7 @@ func TestInitializePlayer_SubsequentLogin_FastPath_HTTP(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w2.Code)
 	var resp2 map[string]interface{}
-	json.NewDecoder(w2.Body).Decode(&resp2)
+	_ = json.NewDecoder(w2.Body).Decode(&resp2)
 
 	// Assertions - fast path
 	assert.Equal(t, float64(0), resp2["newAssignments"], "Second call should assign 0 new goals (fast path)")
@@ -210,7 +210,7 @@ func TestInitializePlayer_MultipleUsers_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w1.Code)
 
 	var resp1 map[string]interface{}
-	json.NewDecoder(w1.Body).Decode(&resp1)
+	_ = json.NewDecoder(w1.Body).Decode(&resp1)
 	assert.Equal(t, float64(1), resp1["newAssignments"], "User 1 should get 1 goal")
 
 	// Initialize user 2
@@ -223,7 +223,7 @@ func TestInitializePlayer_MultipleUsers_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w2.Code)
 
 	var resp2 map[string]interface{}
-	json.NewDecoder(w2.Body).Decode(&resp2)
+	_ = json.NewDecoder(w2.Body).Decode(&resp2)
 	assert.Equal(t, float64(1), resp2["newAssignments"], "User 2 should get 1 goal")
 
 	// Verify user 1 still has 1 goal on subsequent call (fast path)
@@ -235,7 +235,7 @@ func TestInitializePlayer_MultipleUsers_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w1Again.Code)
 
 	var resp1Again map[string]interface{}
-	json.NewDecoder(w1Again.Body).Decode(&resp1Again)
+	_ = json.NewDecoder(w1Again.Body).Decode(&resp1Again)
 	assert.Equal(t, float64(0), resp1Again["newAssignments"], "User 1 should have 0 new assignments (fast path)")
 	assert.Equal(t, float64(1), resp1Again["totalActive"], "User 1 should still have 1 active goal")
 }

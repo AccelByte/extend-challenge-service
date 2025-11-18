@@ -66,7 +66,7 @@ func TestGetUserChallenges_WithProgress_HTTP(t *testing.T) {
 	defer cleanup()
 
 	// Seed completed goal
-	seedCompletedGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
+	seedCompletedActiveGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
 
 	// Make HTTP GET request
 	req := httptest.NewRequest(http.MethodGet, "/v1/challenges", nil)
@@ -114,7 +114,7 @@ func TestClaimGoalReward_HappyPath_HTTP(t *testing.T) {
 	seedClaimedGoal(t, testDB, "test-user-123", "complete-tutorial", "winter-challenge-2025")
 
 	// Seed completed goal
-	seedCompletedGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
+	seedCompletedActiveGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
 
 	// Mock reward granting to succeed (ITEM reward: 767d2217abe241aab2245794761e9dc4, quantity 1)
 	// Note: This UUID matches the rewardId in config/challenges.test.json for kill-10-snowmen goal
@@ -210,8 +210,8 @@ func TestClaimGoalReward_MultipleUsers_HTTP(t *testing.T) {
 	seedClaimedGoal(t, testDB, "user-2", "complete-tutorial", "winter-challenge-2025")
 
 	// Seed completed goals for two different users
-	seedCompletedGoal(t, testDB, "user-1", "kill-10-snowmen", "winter-challenge-2025")
-	seedCompletedGoal(t, testDB, "user-2", "kill-10-snowmen", "winter-challenge-2025")
+	seedCompletedActiveGoal(t, testDB, "user-1", "kill-10-snowmen", "winter-challenge-2025")
+	seedCompletedActiveGoal(t, testDB, "user-2", "kill-10-snowmen", "winter-challenge-2025")
 
 	// Mock reward granting for both users
 	mockRewardClient.On("GrantReward",
@@ -330,7 +330,7 @@ func TestClaimGoalReward_ConcurrentClaims_HTTP(t *testing.T) {
 	seedClaimedGoal(t, testDB, userID, "complete-tutorial", "winter-challenge-2025")
 
 	// Seed completed goal
-	seedCompletedGoal(t, testDB, userID, "kill-10-snowmen", "winter-challenge-2025")
+	seedCompletedActiveGoal(t, testDB, userID, "kill-10-snowmen", "winter-challenge-2025")
 
 	// Mock reward granting to succeed (only once!)
 	mockRewardClient.On("GrantReward",

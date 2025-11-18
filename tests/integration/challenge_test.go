@@ -101,8 +101,8 @@ func TestClaimGoalReward_HappyPath(t *testing.T) {
 	// Seed prerequisite goal as claimed (kill-10-snowmen requires complete-tutorial)
 	seedClaimedGoal(t, testDB, "test-user-123", "complete-tutorial", "winter-challenge-2025")
 
-	// Seed completed goal
-	seedCompletedGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
+	// Seed completed AND active goal (must be active to claim)
+	seedCompletedActiveGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
 
 	// Mock reward granting to succeed (ITEM reward: 767d2217abe241aab2245794761e9dc4, quantity 1)
 	// Note: This UUID matches the rewardId in config/challenges.test.json for kill-10-snowmen goal
@@ -175,9 +175,9 @@ func TestClaimGoalReward_MultipleUsers(t *testing.T) {
 	seedClaimedGoal(t, testDB, "user-1", "complete-tutorial", "winter-challenge-2025")
 	seedClaimedGoal(t, testDB, "user-2", "complete-tutorial", "winter-challenge-2025")
 
-	// Seed completed goals for two different users
-	seedCompletedGoal(t, testDB, "user-1", "kill-10-snowmen", "winter-challenge-2025")
-	seedCompletedGoal(t, testDB, "user-2", "kill-10-snowmen", "winter-challenge-2025")
+	// Seed completed AND active goals for two different users (must be active to claim)
+	seedCompletedActiveGoal(t, testDB, "user-1", "kill-10-snowmen", "winter-challenge-2025")
+	seedCompletedActiveGoal(t, testDB, "user-2", "kill-10-snowmen", "winter-challenge-2025")
 
 	// Mock reward granting for both users
 	mockRewardClient.On("GrantReward",

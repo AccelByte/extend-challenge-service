@@ -160,6 +160,12 @@ func (m *MockTxRepository) UpsertGoalActive(ctx context.Context, progress *domai
 	return args.Error(0)
 }
 
+// M4: Batch goal activation
+func (m *MockTxRepository) BatchUpsertGoalActive(ctx context.Context, progresses []*domain.UserGoalProgress) error {
+	args := m.Called(ctx, progresses)
+	return args.Error(0)
+}
+
 // Test Fixtures
 
 func createClaimableGoal(goalID, challengeID string) *domain.Goal {

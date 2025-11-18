@@ -198,7 +198,7 @@ func TestClaimReward_GoalNotCompleted_HTTP(t *testing.T) {
 	seedClaimedGoal(t, testDB, userID, "complete-tutorial", "winter-challenge-2025")
 
 	// Seed goal that is in_progress (not completed)
-	seedInProgressGoal(t, testDB, userID, "kill-10-snowmen", "winter-challenge-2025", 5, 10)
+	seedInProgressActiveGoal(t, testDB, userID, "kill-10-snowmen", "winter-challenge-2025", 5, 10)
 
 	req := httptest.NewRequest(
 		http.MethodPost,
@@ -313,7 +313,7 @@ func TestClaimReward_EmptyUserID_HTTP(t *testing.T) {
 	defer cleanup()
 
 	// Seed completed goal for empty user ID (edge case)
-	seedCompletedGoal(t, testDB, "", "kill-10-snowmen", "winter-challenge-2025")
+	seedCompletedActiveGoal(t, testDB, "", "kill-10-snowmen", "winter-challenge-2025")
 
 	req := httptest.NewRequest(
 		http.MethodPost,

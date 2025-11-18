@@ -18,8 +18,8 @@ func TestError_400_GoalNotCompleted(t *testing.T) {
 	client, mockRewardClient, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// Seed in-progress goal (progress < target)
-	seedInProgressGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025", 5, 10)
+	// Seed in-progress AND active goal (progress < target, but must be active to attempt claim)
+	seedInProgressActiveGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025", 5, 10)
 
 	// Try to claim incomplete goal
 	ctx := createAuthContext("test-user-123", "test-namespace")
@@ -110,7 +110,7 @@ func TestError_400_GoalLocked_PrerequisitesNotMet(t *testing.T) {
 	defer cleanup()
 
 	// Seed completed goal WITHOUT completing prerequisite
-	seedCompletedGoal(t, testDB, "test-user-123", "reach-level-5", "winter-challenge-2025")
+	seedCompletedActiveGoal(t, testDB, "test-user-123", "reach-level-5", "winter-challenge-2025")
 
 	// Try to claim locked goal
 	ctx := createAuthContext("test-user-123", "test-namespace")
@@ -167,7 +167,7 @@ func TestError_502_RewardGrantFailed(t *testing.T) {
 	seedClaimedGoal(t, testDB, "test-user-123", "complete-tutorial", "winter-challenge-2025")
 
 	// Seed completed goal
-	seedCompletedGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
+	seedCompletedActiveGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
 
 	// Mock reward client to fail (simulates AGS timeout or error)
 	mockRewardClient.On("GrantReward", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -205,7 +205,7 @@ func TestError_400_InvalidRequest_NoAuthContext(t *testing.T) {
 	defer cleanup()
 
 	// Seed completed goal
-	seedCompletedGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
+	seedCompletedActiveGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
 
 	// Try to claim with NO auth context (no user ID)
 	ctx := context.Background() // No auth context
@@ -268,7 +268,7 @@ func TestError_WithContext_UserMismatch(t *testing.T) {
 	defer cleanup()
 
 	// Seed completed goal for user-1
-	seedCompletedGoal(t, testDB, "user-1", "kill-10-snowmen", "winter-challenge-2025")
+	seedCompletedActiveGoal(t, testDB, "user-1", "kill-10-snowmen", "winter-challenge-2025")
 
 	// Try to claim as user-2 (different user)
 	// Since we extract userID from context, user-2 won't see user-1's progress
@@ -293,7 +293,7 @@ func TestError_NamespaceMismatch(t *testing.T) {
 
 	// Seed prerequisite and completed goal for test-namespace
 	seedClaimedGoal(t, testDB, "test-user-123", "complete-tutorial", "winter-challenge-2025")
-	seedCompletedGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
+	seedCompletedActiveGoal(t, testDB, "test-user-123", "kill-10-snowmen", "winter-challenge-2025")
 
 	// Mock reward granting for the namespace in context (test-namespace)
 	// Even though we use different namespace in auth context, the server uses its configured namespace

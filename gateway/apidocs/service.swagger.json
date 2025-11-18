@@ -119,6 +119,121 @@
         ]
       }
     },
+    "/v1/challenges/{challengeId}/goals/batch-select": {
+      "post": {
+        "summary": "Batch select goals",
+        "description": "Activate multiple player-selected goals at once (atomic operation)",
+        "operationId": "Service_BatchSelectGoals",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/serviceGoalSelectionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "challengeId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "goalIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "replaceExisting": {
+                  "type": "boolean"
+                }
+              },
+              "title": "M4: Batch select request"
+            }
+          }
+        ],
+        "tags": [
+          "Challenges"
+        ],
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/challenges/{challengeId}/goals/random-select": {
+      "post": {
+        "summary": "Random select goals",
+        "description": "Randomly select N goals from a challenge and activate them",
+        "operationId": "Service_RandomSelectGoals",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/serviceGoalSelectionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "challengeId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "replaceExisting": {
+                  "type": "boolean"
+                },
+                "excludeActive": {
+                  "type": "boolean"
+                }
+              },
+              "title": "M4: Random select request"
+            }
+          }
+        ],
+        "tags": [
+          "Challenges"
+        ],
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
     "/v1/challenges/{challengeId}/goals/{goalId}/active": {
       "put": {
         "summary": "Set goal active/inactive",
@@ -392,6 +507,32 @@
         }
       }
     },
+    "serviceGoalSelectionResponse": {
+      "type": "object",
+      "properties": {
+        "selectedGoals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/serviceSelectedGoal"
+          }
+        },
+        "challengeId": {
+          "type": "string"
+        },
+        "totalActiveGoals": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "replacedGoals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "title": "M4: Goal selection response (shared by batch and random)"
+    },
     "serviceHealthCheckResponse": {
       "type": "object",
       "properties": {
@@ -453,6 +594,47 @@
           "format": "int32"
         }
       }
+    },
+    "serviceSelectedGoal": {
+      "type": "object",
+      "properties": {
+        "goalId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "requirement": {
+          "$ref": "#/definitions/serviceRequirement"
+        },
+        "reward": {
+          "$ref": "#/definitions/serviceReward"
+        },
+        "status": {
+          "type": "string"
+        },
+        "progress": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "target": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "assignedAt": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        }
+      },
+      "title": "M4: Selected goal info"
     },
     "serviceSetGoalActiveResponse": {
       "type": "object",

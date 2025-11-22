@@ -504,6 +504,9 @@
         },
         "claimedAt": {
           "type": "string"
+        },
+        "isActive": {
+          "type": "boolean"
         }
       }
     },

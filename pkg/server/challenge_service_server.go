@@ -7,6 +7,8 @@ package server
 import (
 	"context"
 	"database/sql"
+	stdErrors "errors"
+	"strings"
 	"time"
 
 	"extend-challenge-service/pkg/common"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/AccelByte/extend-challenge-common/pkg/cache"
 	"github.com/AccelByte/extend-challenge-common/pkg/client"
+	"github.com/AccelByte/extend-challenge-common/pkg/errors"
 	"github.com/AccelByte/extend-challenge-common/pkg/repository"
 
 	"github.com/sirupsen/logrus"
@@ -316,6 +319,12 @@ func (s *ChallengeServiceServer) BatchSelectGoals(
 			"goal_count":   len(req.GoalIds),
 			"error":        err,
 		}).Error("Failed to batch select goals")
+
+		// Return 404 Not Found for resource not found errors
+		if strings.Contains(err.Error(), "not found") {
+			return nil, status.Errorf(codes.NotFound, "%v", err)
+		}
+
 		return nil, status.Errorf(codes.Internal, "failed to batch select goals: %v", err)
 	}
 
@@ -400,6 +409,18 @@ func (s *ChallengeServiceServer) RandomSelectGoals(
 			"count":        req.Count,
 			"error":        err,
 		}).Error("Failed to random select goals")
+
+		// Check for insufficient goals error (M4: zero goals available)
+		var challengeErr *errors.ChallengeError
+		if stdErrors.As(err, &challengeErr) && challengeErr.Code == errors.ErrCodeInsufficientGoals {
+			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+		}
+
+		// Return 404 Not Found for resource not found errors
+		if strings.Contains(err.Error(), "not found") {
+			return nil, status.Errorf(codes.NotFound, "%v", err)
+		}
+
 		return nil, status.Errorf(codes.Internal, "failed to random select goals: %v", err)
 	}
 

@@ -256,6 +256,7 @@ message Goal {
   bool locked = 9;
   string completed_at = 10;
   string claimed_at = 11;
+  bool is_active = 12;
 }
 
 message AssignedGoal {

@@ -180,7 +180,7 @@ func TestBatchSelectGoals_InvalidGoalID(t *testing.T) {
 
 	st, ok := status.FromError(err)
 	require.True(t, ok, "Error should be a gRPC status error")
-	assert.Equal(t, codes.Internal, st.Code())
+	assert.Equal(t, codes.NotFound, st.Code())
 	assert.Contains(t, st.Message(), "not found")
 }
 
@@ -258,7 +258,7 @@ func TestBatchSelectGoals_ChallengeNotFound(t *testing.T) {
 
 	st, ok := status.FromError(err)
 	require.True(t, ok, "Error should be a gRPC status error")
-	assert.Equal(t, codes.Internal, st.Code())
+	assert.Equal(t, codes.NotFound, st.Code())
 	assert.Contains(t, st.Message(), "not found")
 }
 

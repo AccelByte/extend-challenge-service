@@ -111,6 +111,7 @@ func GoalToProto(goal *domain.Goal, userProgress map[string]*domain.UserGoalProg
 		pbGoal.Progress = ComputeProgress(goal, progress)
 		pbGoal.Status = string(progress.Status)
 		pbGoal.Locked = false // Will be computed by PrerequisiteChecker
+		pbGoal.IsActive = progress.IsActive
 
 		// Format timestamps using AppendFormat to reuse buffer (reduces allocations)
 		var buf []byte
@@ -129,6 +130,7 @@ func GoalToProto(goal *domain.Goal, userProgress map[string]*domain.UserGoalProg
 		pbGoal.Locked = len(goal.Prerequisites) > 0 // Will be refined by PrerequisiteChecker
 		pbGoal.CompletedAt = ""
 		pbGoal.ClaimedAt = ""
+		pbGoal.IsActive = false
 	}
 
 	return pbGoal, nil

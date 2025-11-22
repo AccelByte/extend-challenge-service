@@ -73,7 +73,7 @@ func InjectProgressIntoGoal(
 
 // buildDefaultProgressFields returns JSON fields for goals with no user progress.
 func buildDefaultProgressFields() []byte {
-	return []byte(`,"progress":0,"status":"not_started","completedAt":"","claimedAt":""`)
+	return []byte(`,"progress":0,"status":"not_started","completedAt":"","claimedAt":"","isActive":false`)
 }
 
 // buildProgressFields builds JSON fields for a goal with user progress.
@@ -112,6 +112,14 @@ func buildProgressFields(progress *commonDomain.UserGoalProgress) []byte {
 		buf.WriteString(progress.ClaimedAt.Format(time.RFC3339))
 	}
 	buf.WriteString(`"`)
+
+	// Inject isActive (camelCase)
+	buf.WriteString(`,"isActive":`)
+	if progress.IsActive {
+		buf.WriteString(`true`)
+	} else {
+		buf.WriteString(`false`)
+	}
 
 	return buf.Bytes()
 }

@@ -178,7 +178,7 @@ func TestBatchSelectGoals_InvalidGoalID_HTTP(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	// Verify error response
-	assert.Equal(t, http.StatusInternalServerError, w.Code, "Should return 500 Internal Server Error")
+	assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 Not Found")
 
 	var resp map[string]interface{}
 	err := json.NewDecoder(w.Body).Decode(&resp)

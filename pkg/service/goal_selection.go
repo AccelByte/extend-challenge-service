@@ -13,6 +13,7 @@ import (
 
 	"github.com/AccelByte/extend-challenge-common/pkg/cache"
 	"github.com/AccelByte/extend-challenge-common/pkg/domain"
+	"github.com/AccelByte/extend-challenge-common/pkg/errors"
 	"github.com/AccelByte/extend-challenge-common/pkg/repository"
 
 	"github.com/sirupsen/logrus"
@@ -161,7 +162,7 @@ func RandomSelectGoals(
 			"requested":    count,
 			"available":    0,
 		}).Warn("No goals available for selection")
-		return nil, fmt.Errorf("no goals available for selection")
+		return nil, errors.ErrInsufficientGoals(0, count)
 	}
 
 	// Return partial results if fewer available than requested

@@ -24,7 +24,7 @@ require (
 )
 
 require (
-	github.com/AccelByte/extend-challenge-common v0.10.1
+	github.com/AccelByte/extend-challenge-common v0.10.2
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/bytedance/sonic v1.14.1
 	github.com/golang-migrate/migrate/v4 v4.19.0

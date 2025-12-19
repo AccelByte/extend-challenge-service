@@ -228,7 +228,7 @@ Challenges are defined in `config/challenges.json`:
 - `ITEM`: Grants item entitlement via AGS Platform Service
 - `WALLET`: Credits wallet currency via AGS Platform Service
 
-See [Platform docs - TECH_SPEC_CONFIGURATION.md](https://github.com/AccelByte/extend-challenge-platform/blob/master/docs/TECH_SPEC_CONFIGURATION.md) for full schema.
+See [Suite docs - TECH_SPEC_CONFIGURATION.md](https://github.com/AccelByte/extend-challenge-suite/blob/master/docs/TECH_SPEC_CONFIGURATION.md) for full schema.
 
 ---
 
@@ -270,7 +270,7 @@ extend-challenge-service/
 #### 2. Optimized HTTP Handler (`internal/httphandler/`)
 - Custom HTTP handler for `GET /v1/challenges` (bypasses gRPC-Gateway)
 - 30% faster than gRPC-Gateway for high-traffic endpoint
-- See [ADR_001_OPTIMIZED_HTTP_HANDLER.md](https://github.com/AccelByte/extend-challenge-platform/blob/master/docs/ADR_001_OPTIMIZED_HTTP_HANDLER.md)
+- See [ADR_001_OPTIMIZED_HTTP_HANDLER.md](https://github.com/AccelByte/extend-challenge-suite/blob/master/docs/ADR_001_OPTIMIZED_HTTP_HANDLER.md)
 
 #### 3. Business Logic (`internal/service/`)
 - Core business logic for challenges and goals
@@ -374,7 +374,7 @@ make migrate-down
 migrate create -ext sql -dir migrations -seq add_new_column
 ```
 
-See [Platform docs - TECH_SPEC_DATABASE.md](https://github.com/AccelByte/extend-challenge-platform/blob/master/docs/TECH_SPEC_DATABASE.md) for detailed database design.
+See [Suite docs - TECH_SPEC_DATABASE.md](https://github.com/AccelByte/extend-challenge-suite/blob/master/docs/TECH_SPEC_DATABASE.md) for detailed database design.
 
 ---
 
@@ -412,7 +412,7 @@ docker run -p 6565:6565 -p 8000:8000 \
    - AGS credentials (AB_CLIENT_ID, AB_CLIENT_SECRET)
    - Set `REWARD_CLIENT_MODE=real` for production
 
-See [Platform docs - TECH_SPEC_DEPLOYMENT.md](https://github.com/AccelByte/extend-challenge-platform/blob/master/docs/TECH_SPEC_DEPLOYMENT.md) for detailed deployment guide.
+See [Suite docs - TECH_SPEC_DEPLOYMENT.md](https://github.com/AccelByte/extend-challenge-suite/blob/master/docs/TECH_SPEC_DEPLOYMENT.md) for detailed deployment guide.
 
 ---
 
@@ -471,7 +471,7 @@ OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
 3. **Database connection pooling** - Configure max connections (default: 25)
 4. **Horizontal scaling** - Run multiple replicas behind load balancer
 
-See [Platform docs - PERFORMANCE_BASELINE.md](https://github.com/AccelByte/extend-challenge-platform/blob/master/docs/PERFORMANCE_BASELINE.md) for detailed benchmarks.
+See [Suite docs - PERFORMANCE_BASELINE.md](https://github.com/AccelByte/extend-challenge-suite/blob/master/docs/PERFORMANCE_BASELINE.md) for detailed benchmarks.
 
 ---
 
@@ -536,7 +536,7 @@ go mod tidy
 
 ## Contributing
 
-See [Platform repo - CONTRIBUTING.md](https://github.com/AccelByte/extend-challenge-platform/blob/master/CONTRIBUTING.md)
+See [Suite repo - CONTRIBUTING.md](https://github.com/AccelByte/extend-challenge-suite/blob/master/CONTRIBUTING.md)
 
 ---
 
@@ -548,7 +548,7 @@ See [Platform repo - CONTRIBUTING.md](https://github.com/AccelByte/extend-challe
 
 ## Links
 
-- **Platform Repo**: https://github.com/AccelByte/extend-challenge-platform
+- **Suite Repo**: https://github.com/AccelByte/extend-challenge-suite
 - **Common Library**: https://github.com/AccelByte/extend-challenge-common
 - **Event Handler**: https://github.com/AccelByte/extend-challenge-event-handler
 - **Demo App**: https://github.com/AccelByte/extend-challenge-demo-app

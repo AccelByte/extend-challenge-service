@@ -102,19 +102,8 @@ func (m *MockGoalRepository) BatchUpsertProgress(ctx context.Context, updates []
 	return args.Error(0)
 }
 
-func (m *MockGoalRepository) BatchUpsertProgressWithCOPY(ctx context.Context, updates []*domain.UserGoalProgress) error {
-	args := m.Called(ctx, updates)
-	return args.Error(0)
-}
-
-func (m *MockGoalRepository) IncrementProgress(ctx context.Context, userID, goalID, challengeID, namespace string,
-	delta, targetValue int, isDailyIncrement bool) error {
-	args := m.Called(ctx, userID, goalID, challengeID, namespace, delta, targetValue, isDailyIncrement)
-	return args.Error(0)
-}
-
-func (m *MockGoalRepository) BatchIncrementProgress(ctx context.Context, increments []repository.ProgressIncrement) error {
-	args := m.Called(ctx, increments)
+func (m *MockGoalRepository) BatchUpsertProgressWithCOPY(ctx context.Context, rows []repository.CopyRow) error {
+	args := m.Called(ctx, rows)
 	return args.Error(0)
 }
 

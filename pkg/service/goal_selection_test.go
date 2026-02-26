@@ -949,12 +949,12 @@ func createTestChallengeWithGoals(challengeID string, goalCount int) *domain.Cha
 			Name:        "Goal " + string(rune('A'+i)),
 			Description: "Test goal " + string(rune('A'+i)),
 			ChallengeID: challengeID,
-			Type:        domain.GoalTypeAbsolute,
 			EventSource: domain.EventSourceStatistic,
 			Requirement: domain.Requirement{
-				StatCode:    "test_stat",
-				Operator:    ">=",
-				TargetValue: 10,
+				StatCode:     "test_stat",
+				Operator:     ">=",
+				TargetValue:  10,
+				ProgressMode: domain.ProgressModeAbsolute,
 			},
 			Reward: domain.Reward{
 				Type:     string(domain.RewardTypeItem),

@@ -201,12 +201,12 @@ func createTestChallenges() []*commonDomain.Challenge {
 					ChallengeID: "daily-challenge",
 					Name:        "Login Daily",
 					Description: "Login to the game",
-					Type:        commonDomain.GoalTypeAbsolute,
 					EventSource: commonDomain.EventSourceLogin,
 					Requirement: commonDomain.Requirement{
-						StatCode:    "login_count",
-						Operator:    ">=",
-						TargetValue: 1,
+						StatCode:     "login_count",
+						Operator:     ">=",
+						TargetValue:  1,
+						ProgressMode: commonDomain.ProgressModeAbsolute,
 					},
 					Reward: commonDomain.Reward{
 						Type:     "WALLET",

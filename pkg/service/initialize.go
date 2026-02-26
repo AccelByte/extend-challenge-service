@@ -21,20 +21,20 @@ type InitializeResponse struct {
 
 // AssignedGoal represents a goal assigned to a player during initialization.
 type AssignedGoal struct {
-	ChallengeID string
-	GoalID      string
-	Name        string
-	Description string
-	IsActive    bool
-	AssignedAt  *time.Time
-	ExpiresAt   *time.Time
-	Progress    int
-	Target      int
-	Status      string
-	Type        domain.GoalType
-	EventSource domain.EventSource
-	Requirement domain.Requirement
-	Reward      domain.Reward
+	ChallengeID  string
+	GoalID       string
+	Name         string
+	Description  string
+	IsActive     bool
+	AssignedAt   *time.Time
+	ExpiresAt    *time.Time
+	Progress     int
+	Target       int
+	Status       string
+	ProgressMode domain.ProgressMode
+	EventSource  domain.EventSource
+	Requirement  domain.Requirement
+	Reward       domain.Reward
 }
 
 // InitializePlayer creates database rows for DEFAULT-ASSIGNED goals on first login or config sync on subsequent logins.
@@ -230,20 +230,20 @@ func mapToAssignedGoals(
 		}
 
 		result = append(result, &AssignedGoal{
-			ChallengeID: progress.ChallengeID,
-			GoalID:      progress.GoalID,
-			Name:        goal.Name,
-			Description: goal.Description,
-			IsActive:    progress.IsActive,
-			AssignedAt:  progress.AssignedAt,
-			ExpiresAt:   progress.ExpiresAt,
-			Progress:    progress.Progress,
-			Target:      goal.Requirement.TargetValue,
-			Status:      string(progress.Status),
-			Type:        goal.Type,
-			EventSource: goal.EventSource,
-			Requirement: goal.Requirement,
-			Reward:      goal.Reward,
+			ChallengeID:  progress.ChallengeID,
+			GoalID:       progress.GoalID,
+			Name:         goal.Name,
+			Description:  goal.Description,
+			IsActive:     progress.IsActive,
+			AssignedAt:   progress.AssignedAt,
+			ExpiresAt:    progress.ExpiresAt,
+			Progress:     progress.Progress,
+			Target:       goal.Requirement.TargetValue,
+			Status:       string(progress.Status),
+			ProgressMode: goal.Requirement.ProgressMode,
+			EventSource:  goal.EventSource,
+			Requirement:  goal.Requirement,
+			Reward:       goal.Reward,
 		})
 	}
 

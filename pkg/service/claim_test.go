@@ -174,13 +174,13 @@ func createClaimableGoal(goalID, challengeID string) *domain.Goal {
 		Name:          "Claimable Goal",
 		Description:   "Test goal",
 		ChallengeID:   challengeID,
-		Type:          domain.GoalTypeAbsolute,
 		EventSource:   domain.EventSourceStatistic,
 		Prerequisites: []string{},
 		Requirement: domain.Requirement{
-			StatCode:    "kills",
-			Operator:    ">=",
-			TargetValue: 10,
+			StatCode:     "kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeItem),

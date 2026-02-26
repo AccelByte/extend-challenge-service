@@ -200,12 +200,12 @@ func createTestGoal(id, name, challengeID string) *domain.Goal {
 		Name:        name,
 		Description: "Test goal",
 		ChallengeID: challengeID,
-		Type:        domain.GoalTypeAbsolute,
 		EventSource: domain.EventSourceStatistic,
 		Requirement: domain.Requirement{
-			StatCode:    "kills",
-			Operator:    ">=",
-			TargetValue: 10,
+			StatCode:     "kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeItem),

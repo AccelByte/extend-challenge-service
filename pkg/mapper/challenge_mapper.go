@@ -136,30 +136,13 @@ func GoalToProto(goal *domain.Goal, userProgress map[string]*domain.UserGoalProg
 	return pbGoal, nil
 }
 
-// ComputeProgress computes the progress value for display (Decision FQ2)
-// For daily goals: Returns 1 if completed today, 0 otherwise
-// For other goals: Returns the actual progress value from DB
+// ComputeProgress computes the progress value for display.
+// Returns the actual progress value from DB for all progress modes.
 func ComputeProgress(goal *domain.Goal, progress *domain.UserGoalProgress) int32 {
 	if goal == nil || progress == nil {
 		return 0
 	}
 
-	// Daily goals: Check if completed today (Decision Q9, FQ2)
-	if goal.Type == domain.GoalTypeDaily {
-		// If completed_at is today (UTC), show progress = 1
-		// Compare dates directly without string allocation
-		if progress.CompletedAt != nil && !progress.CompletedAt.IsZero() {
-			cy, cm, cd := progress.CompletedAt.UTC().Date()
-			ty, tm, td := time.Now().UTC().Date()
-			if cy == ty && cm == tm && cd == td {
-				return 1
-			}
-		}
-		// Not completed today
-		return 0
-	}
-
-	// Absolute and increment goals: Return actual progress from DB
 	// #nosec G115 - Progress values are validated at config load time, safe to convert
 	return int32(progress.Progress)
 }

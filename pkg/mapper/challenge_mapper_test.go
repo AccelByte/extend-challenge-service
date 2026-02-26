@@ -68,11 +68,11 @@ func TestGoalToProto_WithProgress(t *testing.T) {
 		ID:          "goal-1",
 		Name:        "Test Goal",
 		Description: "Test description",
-		Type:        domain.GoalTypeAbsolute,
 		Requirement: domain.Requirement{
-			StatCode:    "kills",
-			Operator:    ">=",
-			TargetValue: 10,
+			StatCode:     "kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeItem),
@@ -109,11 +109,11 @@ func TestGoalToProto_NoProgress(t *testing.T) {
 		ID:          "goal-1",
 		Name:        "Test Goal",
 		Description: "Test description",
-		Type:        domain.GoalTypeAbsolute,
 		Requirement: domain.Requirement{
-			StatCode:    "kills",
-			Operator:    ">=",
-			TargetValue: 10,
+			StatCode:     "kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeItem),
@@ -142,9 +142,9 @@ func TestGoalToProto_NilGoal(t *testing.T) {
 
 func TestComputeProgress_DailyGoal_CompletedToday(t *testing.T) {
 	goal := &domain.Goal{
-		Type: domain.GoalTypeDaily,
 		Requirement: domain.Requirement{
-			TargetValue: 1,
+			TargetValue:  1,
+			ProgressMode: domain.ProgressModeRelative,
 		},
 	}
 
@@ -162,13 +162,14 @@ func TestComputeProgress_DailyGoal_CompletedToday(t *testing.T) {
 
 func TestComputeProgress_DailyGoal_CompletedYesterday(t *testing.T) {
 	goal := &domain.Goal{
-		Type: domain.GoalTypeDaily,
 		Requirement: domain.Requirement{
-			TargetValue: 1,
+			TargetValue:  1,
+			ProgressMode: domain.ProgressModeRelative,
 		},
 	}
 
-	// Completed yesterday
+	// Completed yesterday - ComputeProgress now returns raw progress
+	// (daily reset logic is handled at the event-handler level, not display level)
 	yesterday := time.Now().UTC().Add(-24 * time.Hour)
 	progress := &domain.UserGoalProgress{
 		Progress:    1,
@@ -177,14 +178,14 @@ func TestComputeProgress_DailyGoal_CompletedYesterday(t *testing.T) {
 
 	result := ComputeProgress(goal, progress)
 
-	assert.Equal(t, int32(0), result) // Reset to 0 because not completed today
+	assert.Equal(t, int32(1), result) // Returns raw progress value
 }
 
 func TestComputeProgress_DailyGoal_NotCompleted(t *testing.T) {
 	goal := &domain.Goal{
-		Type: domain.GoalTypeDaily,
 		Requirement: domain.Requirement{
-			TargetValue: 1,
+			TargetValue:  1,
+			ProgressMode: domain.ProgressModeRelative,
 		},
 	}
 
@@ -199,9 +200,9 @@ func TestComputeProgress_DailyGoal_NotCompleted(t *testing.T) {
 
 func TestComputeProgress_AbsoluteGoal(t *testing.T) {
 	goal := &domain.Goal{
-		Type: domain.GoalTypeAbsolute,
 		Requirement: domain.Requirement{
-			TargetValue: 10,
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 	}
 
@@ -216,9 +217,9 @@ func TestComputeProgress_AbsoluteGoal(t *testing.T) {
 
 func TestComputeProgress_IncrementGoal(t *testing.T) {
 	goal := &domain.Goal{
-		Type: domain.GoalTypeIncrement,
 		Requirement: domain.Requirement{
-			TargetValue: 10,
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeRelative,
 		},
 	}
 
@@ -352,11 +353,11 @@ func TestGoalToProto_WithClaimedProgress(t *testing.T) {
 		ID:          "goal-1",
 		Name:        "Test Goal",
 		Description: "Test description",
-		Type:        domain.GoalTypeAbsolute,
 		Requirement: domain.Requirement{
-			StatCode:    "kills",
-			Operator:    ">=",
-			TargetValue: 10,
+			StatCode:     "kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeItem),
@@ -392,11 +393,11 @@ func TestGoalToProto_WithPrerequisites(t *testing.T) {
 		ID:          "goal-2",
 		Name:        "Goal 2",
 		Description: "Second goal",
-		Type:        domain.GoalTypeAbsolute,
 		Requirement: domain.Requirement{
-			StatCode:    "level",
-			Operator:    ">=",
-			TargetValue: 5,
+			StatCode:     "level",
+			Operator:     ">=",
+			TargetValue:  5,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeWallet),

@@ -16,7 +16,7 @@ var (
 	ErrPrerequisitesNotMet = errors.New("prerequisites not completed")
 	ErrRewardGrantFailed   = errors.New("failed to grant reward")
 	ErrDatabaseError       = errors.New("database error")
-	ErrInvalidGoalType     = errors.New("invalid goal type")
+	ErrInvalidProgressMode = errors.New("invalid progress mode")
 	ErrInvalidRewardType   = errors.New("invalid reward type")
 	ErrChallengeNotFound   = errors.New("challenge not found")
 )
@@ -143,8 +143,8 @@ func MapErrorToGRPCStatus(err error) error {
 		return status.Error(codes.Internal, "Failed to grant reward via Platform Service after 3 retries")
 	case errors.Is(err, ErrDatabaseError):
 		return status.Error(codes.Internal, "Database error occurred")
-	case errors.Is(err, ErrInvalidGoalType):
-		return status.Error(codes.InvalidArgument, "Invalid goal type")
+	case errors.Is(err, ErrInvalidProgressMode):
+		return status.Error(codes.InvalidArgument, "Invalid progress mode")
 	case errors.Is(err, ErrInvalidRewardType):
 		return status.Error(codes.InvalidArgument, "Invalid reward type")
 	case errors.Is(err, ErrChallengeNotFound):

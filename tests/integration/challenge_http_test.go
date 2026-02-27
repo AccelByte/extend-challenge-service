@@ -39,7 +39,7 @@ func TestGetUserChallenges_EmptyProgress_HTTP(t *testing.T) {
 	// Should return all challenges from test config
 	challenges, ok := resp["challenges"].([]interface{})
 	require.True(t, ok)
-	assert.Len(t, challenges, 2)
+	assert.Len(t, challenges, 3)
 
 	// Verify challenges are present
 	winterChallenge := findChallengeJSON(challenges, "winter-challenge-2025")
@@ -84,7 +84,7 @@ func TestGetUserChallenges_WithProgress_HTTP(t *testing.T) {
 
 	challenges, ok := resp["challenges"].([]interface{})
 	require.True(t, ok)
-	assert.Len(t, challenges, 2)
+	assert.Len(t, challenges, 3)
 
 	// Find winter-challenge-2025
 	winterChallenge := findChallengeJSON(challenges, "winter-challenge-2025")
@@ -447,4 +447,48 @@ func TestClaimGoalReward_InactiveGoal_HTTP(t *testing.T) {
 
 	// Verify reward was NOT granted
 	mockRewardClient.AssertNotCalled(t, "GrantReward")
+}
+
+// TestGetUserChallenges_RotationDisplay_HTTP tests rotation display via gRPC-gateway path.
+// Verifies parity with the optimized HTTP handler for rotation display.
+func TestGetUserChallenges_RotationDisplay_HTTP(t *testing.T) {
+	handler, _, cleanup := setupHTTPTestServer(t)
+	defer cleanup()
+
+	userID := "test-user-rotation-grpc"
+	yesterday := time.Now().UTC().Add(-25 * time.Hour)
+	baseline := 40
+
+	// Seed daily-kills-relative with stale updated_at (rotation boundary crossed)
+	seedRotationGoalWithStaleUpdatedAt(t, testDB,
+		userID, "daily-kills-relative", "rotation-challenge",
+		48, &baseline, "in_progress", yesterday)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/challenges", nil)
+	req.Header.Set("x-mock-user-id", userID)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]interface{}
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	require.NoError(t, err)
+
+	challenges, ok := resp["challenges"].([]interface{})
+	require.True(t, ok)
+	assert.Len(t, challenges, 3)
+
+	rotationChallenge := findChallengeJSON(challenges, "rotation-challenge")
+	require.NotNil(t, rotationChallenge, "rotation-challenge should exist in gRPC-gateway response")
+	goals, ok := rotationChallenge["goals"].([]interface{})
+	require.True(t, ok)
+
+	dailyGoal := findGoalJSON(goals, "daily-kills-relative")
+	require.NotNil(t, dailyGoal)
+	// Stale rotation goal: display reset progress = 0, status = not_started
+	assert.Equal(t, float64(0), dailyGoal["progress"], "gRPC-gateway: stale rotation goal should display progress=0")
+	assert.Equal(t, "not_started", dailyGoal["status"], "gRPC-gateway: stale rotation goal should display not_started")
+	assert.NotEmpty(t, dailyGoal["expiresAt"], "gRPC-gateway: rotation goal should have expiresAt")
 }

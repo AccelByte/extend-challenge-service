@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -176,6 +177,46 @@ func (m *MockGoalRepository) GetActiveGoals(ctx context.Context, userID string) 
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]*commonDomain.UserGoalProgress), args.Error(1)
+}
+
+// createTestChallengesWithRotation returns challenges including one with daily rotation (relative mode)
+func createTestChallengesWithRotation() []*commonDomain.Challenge {
+	return []*commonDomain.Challenge{
+		{
+			ID:          "rotation-challenge",
+			Name:        "Rotation Challenge",
+			Description: "Time-based rotation goals",
+			Goals: []*commonDomain.Goal{
+				{
+					ID:          "daily-kills-relative",
+					ChallengeID: "rotation-challenge",
+					Name:        "Daily Kills",
+					Description: "Get 10 kills today",
+					EventSource: commonDomain.EventSourceStatistic,
+					Requirement: commonDomain.Requirement{
+						StatCode:     "kills",
+						Operator:     ">=",
+						TargetValue:  10,
+						ProgressMode: commonDomain.ProgressModeRelative,
+					},
+					Reward: commonDomain.Reward{
+						Type:     "WALLET",
+						RewardID: "gold",
+						Quantity: 50,
+					},
+					Rotation: &commonDomain.RotationConfig{
+						Enabled:  true,
+						Type:     commonDomain.RotationTypeGlobal,
+						Schedule: commonDomain.RotationScheduleDaily,
+						OnExpiry: commonDomain.OnExpiryConfig{
+							ResetProgress:    true,
+							AllowReselection: false,
+						},
+					},
+				},
+			},
+		},
+	}
 }
 
 // Helper function to create test challenges
@@ -858,4 +899,154 @@ func TestExtractUserID_AuthEnabled_NilValidator(t *testing.T) {
 	assert.Error(t, err)
 	assert.Empty(t, userID)
 	assert.Contains(t, err.Error(), "token validator not initialized")
+}
+
+// TestOptimizedHandler_RotationDisplay_StaleProgressResets verifies that the handler
+// calls GetGoalByID for rotation pre-processing, which triggers display rotation logic
+// for stale progress rows (UpdatedAt = yesterday).
+func TestOptimizedHandler_RotationDisplay_StaleProgressResets(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	serCache := cache.NewSerializedChallengeCache()
+
+	handler := NewOptimizedChallengesHandler(
+		mockCache,
+		mockRepo,
+		serCache,
+		"test-namespace",
+		false,
+		nil,
+	)
+
+	challenges := createTestChallengesWithRotation()
+	rotationGoal := challenges[0].Goals[0]
+	baseline := 50
+
+	mockCache.On("GetAllChallenges").Return(challenges)
+	mockRepo.On("GetUserProgress", mock.Anything, "test-user", false).Return([]*commonDomain.UserGoalProgress{
+		{
+			UserID:        "test-user",
+			GoalID:        "daily-kills-relative",
+			ChallengeID:   "rotation-challenge",
+			Namespace:     "test-namespace",
+			Progress:      58,
+			Status:        commonDomain.GoalStatusInProgress,
+			UpdatedAt:     time.Now().UTC().Add(-25 * time.Hour), // yesterday — stale
+			BaselineValue: &baseline,
+			IsActive:      true,
+		},
+	}, nil)
+	// M5: Handler calls GetGoalByID for each progress entry during rotation pre-processing
+	mockCache.On("GetGoalByID", "daily-kills-relative").Return(rotationGoal)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/challenges", nil)
+	req.Header.Set("x-mock-user-id", "test-user")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	// Verify GetGoalByID was called (rotation pre-processing happened)
+	mockCache.AssertCalled(t, "GetGoalByID", "daily-kills-relative")
+	mockCache.AssertExpectations(t)
+	mockRepo.AssertExpectations(t)
+}
+
+// TestOptimizedHandler_RotationDisplay_FreshProgressPreserved verifies that the handler
+// still calls GetGoalByID even when progress is fresh (no rotation boundary crossed).
+func TestOptimizedHandler_RotationDisplay_FreshProgressPreserved(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	serCache := cache.NewSerializedChallengeCache()
+
+	handler := NewOptimizedChallengesHandler(
+		mockCache,
+		mockRepo,
+		serCache,
+		"test-namespace",
+		false,
+		nil,
+	)
+
+	challenges := createTestChallengesWithRotation()
+	rotationGoal := challenges[0].Goals[0]
+	baseline := 50
+
+	mockCache.On("GetAllChallenges").Return(challenges)
+	mockRepo.On("GetUserProgress", mock.Anything, "test-user", false).Return([]*commonDomain.UserGoalProgress{
+		{
+			UserID:        "test-user",
+			GoalID:        "daily-kills-relative",
+			ChallengeID:   "rotation-challenge",
+			Namespace:     "test-namespace",
+			Progress:      58,
+			Status:        commonDomain.GoalStatusInProgress,
+			UpdatedAt:     time.Now().UTC(), // fresh — no rotation
+			BaselineValue: &baseline,
+			IsActive:      true,
+		},
+	}, nil)
+	mockCache.On("GetGoalByID", "daily-kills-relative").Return(rotationGoal)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/challenges", nil)
+	req.Header.Set("x-mock-user-id", "test-user")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	// GetGoalByID is always called (rotation check runs for every progress entry)
+	mockCache.AssertCalled(t, "GetGoalByID", "daily-kills-relative")
+	mockCache.AssertExpectations(t)
+	mockRepo.AssertExpectations(t)
+}
+
+// TestOptimizedHandler_RotationDisplay_ClaimedGoalPermanent verifies that claimed goals
+// with allowReselection=false still trigger GetGoalByID for rotation pre-processing.
+func TestOptimizedHandler_RotationDisplay_ClaimedGoalPermanent(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	serCache := cache.NewSerializedChallengeCache()
+
+	handler := NewOptimizedChallengesHandler(
+		mockCache,
+		mockRepo,
+		serCache,
+		"test-namespace",
+		false,
+		nil,
+	)
+
+	challenges := createTestChallengesWithRotation()
+	rotationGoal := challenges[0].Goals[0]
+	baseline := 40
+	completedAt := time.Now().UTC().Add(-48 * time.Hour)
+	claimedAt := time.Now().UTC().Add(-47 * time.Hour)
+
+	mockCache.On("GetAllChallenges").Return(challenges)
+	mockRepo.On("GetUserProgress", mock.Anything, "test-user", false).Return([]*commonDomain.UserGoalProgress{
+		{
+			UserID:        "test-user",
+			GoalID:        "daily-kills-relative",
+			ChallengeID:   "rotation-challenge",
+			Namespace:     "test-namespace",
+			Progress:      50,
+			Status:        commonDomain.GoalStatusClaimed,
+			UpdatedAt:     time.Now().UTC().Add(-25 * time.Hour), // stale
+			CompletedAt:   &completedAt,
+			ClaimedAt:     &claimedAt,
+			BaselineValue: &baseline,
+			IsActive:      true,
+		},
+	}, nil)
+	mockCache.On("GetGoalByID", "daily-kills-relative").Return(rotationGoal)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/challenges", nil)
+	req.Header.Set("x-mock-user-id", "test-user")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	// GetGoalByID is called even for claimed goals (rotation check always runs)
+	mockCache.AssertCalled(t, "GetGoalByID", "daily-kills-relative")
+	mockCache.AssertExpectations(t)
+	mockRepo.AssertExpectations(t)
 }

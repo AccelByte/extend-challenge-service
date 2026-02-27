@@ -151,7 +151,7 @@ func TestOptimizedHandler_HappyPath_HTTP(t *testing.T) {
 
 	challenges, ok := resp["challenges"].([]interface{})
 	require.True(t, ok)
-	assert.Len(t, challenges, 2) // winter-challenge and daily-quests
+	assert.Len(t, challenges, 3) // winter-challenge and daily-quests
 
 	// Verify completed goal is reflected
 	// Note: Optimized handler now uses camelCase (challengeId, goalId) - M3 JSON tag fix
@@ -260,7 +260,7 @@ func TestOptimizedHandler_EmptyProgress_HTTP(t *testing.T) {
 
 	challenges, ok := resp["challenges"].([]interface{})
 	require.True(t, ok)
-	assert.Len(t, challenges, 2) // Still returns all challenges, just with no progress
+	assert.Len(t, challenges, 3) // Still returns all challenges, just with no progress
 
 	mockRepo.AssertExpectations(t)
 }
@@ -363,7 +363,7 @@ func TestOptimizedHandler_WithProgress_HTTP(t *testing.T) {
 
 	challenges, ok := resp["challenges"].([]interface{})
 	require.True(t, ok)
-	assert.Len(t, challenges, 2)
+	assert.Len(t, challenges, 3)
 
 	// Verify winter challenge has progress
 	// Note: Optimized handler uses snake_case
@@ -470,4 +470,131 @@ func TestOptimizedHandler_ConcurrentRequests_HTTP(t *testing.T) {
 		code := <-results
 		assert.Equal(t, http.StatusOK, code, "All concurrent requests should succeed")
 	}
+}
+
+// TestOptimizedHandler_RotationDisplay_StaleGoalResetsToZero_HTTP tests that a stale
+// daily rotation goal (updated_at = yesterday) displays as reset progress = 0.
+func TestOptimizedHandler_RotationDisplay_StaleGoalResetsToZero_HTTP(t *testing.T) {
+	h, cleanup := setupOptimizedHandlerWithRealDB(t)
+	defer cleanup()
+
+	userID := "test-user-rotation-stale"
+	yesterday := time.Now().UTC().Add(-25 * time.Hour)
+	baseline := 40
+
+	// Seed daily-kills-relative with stale updated_at
+	seedRotationGoalWithStaleUpdatedAt(t, testDB,
+		userID, "daily-kills-relative", "rotation-challenge",
+		48, &baseline, "in_progress", yesterday)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/challenges", nil)
+	req.Header.Set("x-mock-user-id", userID)
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]interface{}
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	require.NoError(t, err)
+
+	challenges, ok := resp["challenges"].([]interface{})
+	require.True(t, ok)
+
+	rotationChallenge := findChallengeJSON(challenges, "rotation-challenge")
+	require.NotNil(t, rotationChallenge, "rotation-challenge should exist")
+	goals, ok := rotationChallenge["goals"].([]interface{})
+	require.True(t, ok)
+
+	dailyGoal := findGoalJSON(goals, "daily-kills-relative")
+	require.NotNil(t, dailyGoal, "daily-kills-relative should exist")
+	assert.Equal(t, float64(0), dailyGoal["progress"], "Stale rotation goal should display progress=0")
+	assert.Equal(t, "not_started", dailyGoal["status"], "Stale rotation goal should display not_started")
+	assert.NotEmpty(t, dailyGoal["expiresAt"], "Rotation goal should have expiresAt set")
+}
+
+// TestOptimizedHandler_RotationDisplay_FreshGoalPreserved_HTTP tests that a fresh
+// daily rotation goal (updated_at = now) preserves displayed progress.
+func TestOptimizedHandler_RotationDisplay_FreshGoalPreserved_HTTP(t *testing.T) {
+	h, cleanup := setupOptimizedHandlerWithRealDB(t)
+	defer cleanup()
+
+	userID := "test-user-rotation-fresh"
+	now := time.Now().UTC()
+	baseline := 40
+
+	// Seed daily-kills-relative with fresh updated_at (no rotation crossed)
+	seedRotationGoalWithStaleUpdatedAt(t, testDB,
+		userID, "daily-kills-relative", "rotation-challenge",
+		48, &baseline, "in_progress", now)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/challenges", nil)
+	req.Header.Set("x-mock-user-id", userID)
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]interface{}
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	require.NoError(t, err)
+
+	challenges, ok := resp["challenges"].([]interface{})
+	require.True(t, ok)
+
+	rotationChallenge := findChallengeJSON(challenges, "rotation-challenge")
+	require.NotNil(t, rotationChallenge)
+	goals, ok := rotationChallenge["goals"].([]interface{})
+	require.True(t, ok)
+
+	dailyGoal := findGoalJSON(goals, "daily-kills-relative")
+	require.NotNil(t, dailyGoal)
+	// Displayed progress = progress - baseline = 48 - 40 = 8
+	assert.Equal(t, float64(8), dailyGoal["progress"], "Fresh rotation goal should display relative progress 48-40=8")
+	assert.Equal(t, "in_progress", dailyGoal["status"], "Fresh rotation goal should preserve in_progress status")
+}
+
+// TestOptimizedHandler_RotationDisplay_WeeklyNoReset_HTTP tests that a weekly rotation goal
+// with resetProgress=false preserves progress even when stale.
+func TestOptimizedHandler_RotationDisplay_WeeklyNoReset_HTTP(t *testing.T) {
+	h, cleanup := setupOptimizedHandlerWithRealDB(t)
+	defer cleanup()
+
+	userID := "test-user-rotation-weekly"
+	lastWeek := time.Now().UTC().Add(-8 * 24 * time.Hour) // 8 days ago
+	baseline := 20
+
+	// Seed weekly-wins-no-reset with stale updated_at (last week)
+	seedRotationGoalWithStaleUpdatedAt(t, testDB,
+		userID, "weekly-wins-no-reset", "rotation-challenge",
+		24, &baseline, "in_progress", lastWeek)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/challenges", nil)
+	req.Header.Set("x-mock-user-id", userID)
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]interface{}
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	require.NoError(t, err)
+
+	challenges, ok := resp["challenges"].([]interface{})
+	require.True(t, ok)
+
+	rotationChallenge := findChallengeJSON(challenges, "rotation-challenge")
+	require.NotNil(t, rotationChallenge)
+	goals, ok := rotationChallenge["goals"].([]interface{})
+	require.True(t, ok)
+
+	weeklyGoal := findGoalJSON(goals, "weekly-wins-no-reset")
+	require.NotNil(t, weeklyGoal)
+	// resetProgress=false → progress is preserved (24-20=4)
+	assert.Equal(t, float64(4), weeklyGoal["progress"], "Weekly no-reset goal should preserve relative progress 24-20=4")
+	assert.Equal(t, "in_progress", weeklyGoal["status"], "Weekly no-reset goal should preserve status")
+	assert.NotEmpty(t, weeklyGoal["expiresAt"], "Rotation goal should have expiresAt set")
 }

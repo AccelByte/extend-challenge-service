@@ -73,7 +73,7 @@ func InjectProgressIntoGoal(
 
 // buildDefaultProgressFields returns JSON fields for goals with no user progress.
 func buildDefaultProgressFields() []byte {
-	return []byte(`,"progress":0,"status":"not_started","completedAt":"","claimedAt":"","isActive":false`)
+	return []byte(`,"progress":0,"status":"not_started","completedAt":"","claimedAt":"","isActive":false,"expiresAt":"","expiresInSeconds":0`)
 }
 
 // buildProgressFields builds JSON fields for a goal with user progress.
@@ -119,6 +119,25 @@ func buildProgressFields(progress *commonDomain.UserGoalProgress) []byte {
 		buf.WriteString(`true`)
 	} else {
 		buf.WriteString(`false`)
+	}
+
+	// M5: Inject expiresAt (camelCase) - pre-computed on display copy
+	buf.WriteString(`,"expiresAt":"`)
+	if progress.ExpiresAt != nil {
+		buf.WriteString(progress.ExpiresAt.Format(time.RFC3339))
+	}
+	buf.WriteString(`"`)
+
+	// M5: Inject expiresInSeconds - computed from ExpiresAt
+	buf.WriteString(`,"expiresInSeconds":`)
+	if progress.ExpiresAt != nil {
+		seconds := int64(progress.ExpiresAt.Sub(time.Now().UTC()).Seconds())
+		if seconds < 0 {
+			seconds = 0
+		}
+		buf.WriteString(strconv.FormatInt(seconds, 10))
+	} else {
+		buf.WriteString(`0`)
 	}
 
 	return buf.Bytes()

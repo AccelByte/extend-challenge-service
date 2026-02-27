@@ -131,6 +131,24 @@ service Service {
     };
   }
 
+  // M5: Get rotation status for a challenge
+  rpc GetRotationStatus (GetRotationStatusRequest) returns (GetRotationStatusResponse) {
+    option (google.api.http) = {
+      get: "/v1/challenges/{challenge_id}/rotation"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Get rotation status";
+      description: "Get rotation schedule and current period information for a challenge";
+      tags: "Challenges";
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+
   // Health check endpoint (Decision FQ5)
   rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse) {
     option (google.api.http) = {
@@ -257,6 +275,8 @@ message Goal {
   string completed_at = 10;
   string claimed_at = 11;
   bool is_active = 12;
+  string expires_at = 13;
+  int32 expires_in_seconds = 14;
 }
 
 message AssignedGoal {
@@ -284,6 +304,33 @@ message Reward {
   string type = 1;
   string reward_id = 2;
   int32 quantity = 3;
+}
+
+// M5: Rotation status request
+message GetRotationStatusRequest {
+  string challenge_id = 1;
+}
+
+// M5: Rotation status response
+message GetRotationStatusResponse {
+  string challenge_id = 1;
+  RotationInfo rotation = 2;
+}
+
+// M5: Rotation configuration and period info
+message RotationInfo {
+  bool enabled = 1;
+  string type = 2;
+  string schedule = 3;
+  RotationPeriod current_period = 4;
+  RotationPeriod next_period = 5;
+}
+
+// M5: A rotation time period
+message RotationPeriod {
+  string start_time = 1;
+  string end_time = 2;
+  int32 expires_in_seconds = 3;
 }
 
 // OpenAPI options for the entire API (Decision Q11)

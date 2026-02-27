@@ -12,6 +12,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"time"
+
 	"extend-challenge-service/pkg/cache"
 	"extend-challenge-service/pkg/response"
 
@@ -19,6 +21,7 @@ import (
 	commonCache "github.com/AccelByte/extend-challenge-common/pkg/cache"
 	commonDomain "github.com/AccelByte/extend-challenge-common/pkg/domain"
 	commonRepo "github.com/AccelByte/extend-challenge-common/pkg/repository"
+	"github.com/AccelByte/extend-challenge-common/pkg/rotation"
 )
 
 // OptimizedChallengesHandler provides an optimized HTTP endpoint for GET /v1/challenges
@@ -147,6 +150,25 @@ func (h *OptimizedChallengesHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 		progressMap[allProgress[i].GoalID] = allProgress[i]
 	}
 
+	// M5: Pre-process progressMap with display rotation adjustments
+	// Creates shallow copies with adjusted progress/status/ExpiresAt for display
+	now := time.Now().UTC()
+	displayMap := make(map[string]*commonDomain.UserGoalProgress, len(progressMap))
+	for goalID, progress := range progressMap {
+		goal := h.goalCache.GetGoalByID(goalID)
+		if goal == nil {
+			displayMap[goalID] = progress
+			continue
+		}
+
+		display := *progress // shallow copy
+		displayedProgress, displayStatus, _ := rotation.ApplyDisplayRotation(progress, goal, now)
+		display.Progress = displayedProgress
+		display.Status = displayStatus
+		display.ExpiresAt = rotation.CalculateNextExpiresAt(goal, now)
+		displayMap[goalID] = &display
+	}
+
 	// Build challenge IDs list
 	challengeIDs := make([]string, 0, len(challenges))
 	for _, challenge := range challenges {
@@ -155,7 +177,8 @@ func (h *OptimizedChallengesHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 
 	// Use optimized response builder to create JSON
 	// This uses pre-serialized challenge data and only injects user progress
-	responseJSON, err := h.responseBuilder.BuildChallengesResponse(challengeIDs, progressMap)
+	// M5: Use displayMap (rotation-adjusted) instead of raw progressMap
+	responseJSON, err := h.responseBuilder.BuildChallengesResponse(challengeIDs, displayMap)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"user_id":   userID,

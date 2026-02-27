@@ -510,7 +510,6 @@ func TestMapToAssignedGoals_GoalNotFoundInCache(t *testing.T) {
 // Test mapToAssignedGoals - Complete Mapping
 func TestMapToAssignedGoals_CompleteMapping(t *testing.T) {
 	now := time.Now()
-	expiresAt := now.Add(24 * time.Hour)
 
 	progresses := []*domain.UserGoalProgress{
 		{
@@ -522,7 +521,6 @@ func TestMapToAssignedGoals_CompleteMapping(t *testing.T) {
 			Status:      domain.GoalStatusInProgress,
 			IsActive:    true,
 			AssignedAt:  &now,
-			ExpiresAt:   &expiresAt,
 		},
 	}
 
@@ -536,7 +534,7 @@ func TestMapToAssignedGoals_CompleteMapping(t *testing.T) {
 			StatCode:     "test_stat",
 			Operator:     ">=",
 			TargetValue:  10,
-			ProgressMode: domain.ProgressModeRelative,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeWallet),
@@ -561,11 +559,11 @@ func TestMapToAssignedGoals_CompleteMapping(t *testing.T) {
 	assert.Equal(t, "Test Description", ag.Description)
 	assert.True(t, ag.IsActive)
 	assert.Equal(t, &now, ag.AssignedAt)
-	assert.Equal(t, &expiresAt, ag.ExpiresAt)
+	assert.Nil(t, ag.ExpiresAt) // M5: No rotation config → nil ExpiresAt
 	assert.Equal(t, 7, ag.Progress)
 	assert.Equal(t, 10, ag.Target)
 	assert.Equal(t, "in_progress", ag.Status)
-	assert.Equal(t, domain.ProgressModeRelative, ag.ProgressMode)
+	assert.Equal(t, domain.ProgressModeAbsolute, ag.ProgressMode)
 	assert.Equal(t, domain.EventSourceStatistic, ag.EventSource)
 
 	// Verify requirement mapping

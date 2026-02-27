@@ -19,6 +19,7 @@ var (
 	ErrInvalidProgressMode = errors.New("invalid progress mode")
 	ErrInvalidRewardType   = errors.New("invalid reward type")
 	ErrChallengeNotFound   = errors.New("challenge not found")
+	ErrGoalRotated         = errors.New("goal has rotated") // M5 Phase 6
 )
 
 // Structured domain error types
@@ -57,6 +58,16 @@ type GoalNotActiveError struct {
 
 func (e *GoalNotActiveError) Error() string {
 	return "goal not active: " + e.GoalID
+}
+
+// M5 Phase 6: Goal has rotated since completion
+type GoalRotatedError struct {
+	GoalID      string
+	ChallengeID string
+}
+
+func (e *GoalRotatedError) Error() string {
+	return "goal has rotated and must be re-completed: " + e.GoalID
 }
 
 type PrerequisitesNotMetError struct {
@@ -113,6 +124,14 @@ func MapErrorToGRPCStatus(err error) error {
 			goalNotActive.ChallengeID, goalNotActive.GoalID, goalNotActive.GoalID)
 	}
 
+	// M5 Phase 6: Goal rotated error
+	var goalRotated *GoalRotatedError
+	if errors.As(err, &goalRotated) {
+		return status.Errorf(codes.FailedPrecondition,
+			"Goal has rotated and must be re-completed (goal_id: %s, challenge_id: %s)",
+			goalRotated.GoalID, goalRotated.ChallengeID)
+	}
+
 	var prerequisitesNotMet *PrerequisitesNotMetError
 	if errors.As(err, &prerequisitesNotMet) {
 		return status.Errorf(codes.FailedPrecondition,
@@ -149,6 +168,8 @@ func MapErrorToGRPCStatus(err error) error {
 		return status.Error(codes.InvalidArgument, "Invalid reward type")
 	case errors.Is(err, ErrChallengeNotFound):
 		return status.Error(codes.NotFound, "Challenge not found")
+	case errors.Is(err, ErrGoalRotated): // M5 Phase 6
+		return status.Error(codes.FailedPrecondition, "Goal has rotated and must be re-completed")
 	}
 
 	// Default to internal error for unknown errors

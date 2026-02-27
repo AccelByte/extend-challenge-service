@@ -213,7 +213,7 @@ func main() {
 	pbChallenges := make([]*pb.Challenge, 0, len(challengeConfig.Challenges))
 	for _, domainChallenge := range goalCache.GetAllChallenges() {
 		// Convert without user progress (progress will be injected at request time)
-		pbChallenge, err := mapper.ChallengeToProto(domainChallenge, nil)
+		pbChallenge, err := mapper.ChallengeToProto(domainChallenge, nil, time.Now().UTC())
 		if err != nil {
 			logrus.Warnf("Failed to convert challenge %s for serialization cache: %v", domainChallenge.ID, err)
 			continue

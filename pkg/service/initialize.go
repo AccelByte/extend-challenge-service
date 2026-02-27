@@ -8,6 +8,7 @@ import (
 	"github.com/AccelByte/extend-challenge-common/pkg/cache"
 	"github.com/AccelByte/extend-challenge-common/pkg/domain"
 	"github.com/AccelByte/extend-challenge-common/pkg/repository"
+	"github.com/AccelByte/extend-challenge-common/pkg/rotation"
 
 	"github.com/sirupsen/logrus"
 )
@@ -124,28 +125,7 @@ func InitializePlayer(
 
 	// 3. Fast path: User already initialized, return active goals only
 	if userGoalCount > 0 {
-		activeGoals, err := repo.GetActiveGoals(ctx, userID)
-		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"user_id":   userID,
-				"namespace": namespace,
-				"error":     err,
-			}).Error("Failed to get active goals")
-			return nil, fmt.Errorf("failed to get active goals: %w", err)
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"user_id":      userID,
-			"namespace":    namespace,
-			"total_goals":  userGoalCount,
-			"active_goals": len(activeGoals),
-		}).Info("Player already initialized (fast path)")
-
-		return &InitializeResponse{
-			AssignedGoals:  mapToAssignedGoals(activeGoals, defaultGoals, goalCache),
-			NewAssignments: 0,
-			TotalActive:    len(activeGoals),
-		}, nil
+		return handleReturningPlayer(ctx, userID, namespace, goalCache, repo, defaultGoals, userGoalCount)
 	}
 
 	// 4. Slow path: First login - insert ALL default goals
@@ -158,9 +138,8 @@ func InitializePlayer(
 	now := time.Now().UTC() // Always use UTC for consistency across timezones
 
 	for i, goal := range defaultGoals {
-		// M3: Always return nil for expires_at (permanent assignment)
-		// M5: Will calculate based on rotation config
-		var expiresAt *time.Time = nil
+		// M5: Calculate expires_at from rotation config (nil if no rotation)
+		expiresAt := rotation.CalculateNextExpiresAt(goal, now)
 
 		// M3 Phase 9: All default-assigned goals are immediately active
 		newAssignments[i] = &domain.UserGoalProgress{
@@ -203,6 +182,87 @@ func InitializePlayer(
 	}, nil
 }
 
+// handleReturningPlayer handles the fast path for already-initialized players.
+// It loads active goals, applies rotation resets, and returns the response.
+func handleReturningPlayer(
+	ctx context.Context,
+	userID string,
+	namespace string,
+	goalCache cache.GoalCache,
+	repo repository.GoalRepository,
+	defaultGoals []*domain.Goal,
+	userGoalCount int,
+) (*InitializeResponse, error) {
+	activeGoals, err := repo.GetActiveGoals(ctx, userID)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"user_id":   userID,
+			"namespace": namespace,
+			"error":     err,
+		}).Error("Failed to get active goals")
+		return nil, fmt.Errorf("failed to get active goals: %w", err)
+	}
+
+	// M5: Detect and apply rotation resets for returning players
+	applyRotationResets(ctx, userID, namespace, activeGoals, goalCache, repo)
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":      userID,
+		"namespace":    namespace,
+		"total_goals":  userGoalCount,
+		"active_goals": len(activeGoals),
+	}).Info("Player already initialized (fast path)")
+
+	return &InitializeResponse{
+		AssignedGoals:  mapToAssignedGoals(activeGoals, defaultGoals, goalCache),
+		NewAssignments: 0,
+		TotalActive:    len(activeGoals),
+	}, nil
+}
+
+// applyRotationResets detects rotated goals and persists resets to the database.
+// Non-fatal: logs errors but does not fail the caller.
+func applyRotationResets(
+	ctx context.Context,
+	userID string,
+	namespace string,
+	activeGoals []*domain.UserGoalProgress,
+	goalCache cache.GoalCache,
+	repo repository.GoalRepository,
+) {
+	now := time.Now().UTC()
+	var rowsToUpdate []*domain.UserGoalProgress
+	for _, row := range activeGoals {
+		goal := goalCache.GetGoalByID(row.GoalID)
+		if goal == nil {
+			continue
+		}
+		if rotation.ApplyRotationReset(row, goal, now) {
+			rowsToUpdate = append(rowsToUpdate, row)
+		}
+	}
+
+	if len(rowsToUpdate) == 0 {
+		return
+	}
+
+	if err := repo.BatchUpsertProgress(ctx, rowsToUpdate); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"user_id":       userID,
+			"namespace":     namespace,
+			"rotated_count": len(rowsToUpdate),
+			"error":         err,
+		}).Error("Failed to batch update rotated goals")
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user_id":       userID,
+		"namespace":     namespace,
+		"rotated_count": len(rowsToUpdate),
+	}).Info("Applied rotation resets for returning player")
+}
+
 // mapToAssignedGoals converts UserGoalProgress and Goal domain models to AssignedGoal response models.
 //
 // This function enriches progress data with goal configuration details for the API response.
@@ -220,6 +280,7 @@ func mapToAssignedGoals(
 	goalCache cache.GoalCache,
 ) []*AssignedGoal {
 	result := make([]*AssignedGoal, 0, len(progresses))
+	now := time.Now().UTC()
 
 	for _, progress := range progresses {
 		goal := goalCache.GetGoalByID(progress.GoalID)
@@ -229,6 +290,10 @@ func mapToAssignedGoals(
 			continue
 		}
 
+		// M5: Apply display rotation for response
+		displayedProgress, displayStatus, _ := rotation.ApplyDisplayRotation(progress, goal, now)
+		expiresAt := rotation.CalculateNextExpiresAt(goal, now)
+
 		result = append(result, &AssignedGoal{
 			ChallengeID:  progress.ChallengeID,
 			GoalID:       progress.GoalID,
@@ -236,10 +301,10 @@ func mapToAssignedGoals(
 			Description:  goal.Description,
 			IsActive:     progress.IsActive,
 			AssignedAt:   progress.AssignedAt,
-			ExpiresAt:    progress.ExpiresAt,
-			Progress:     progress.Progress,
+			ExpiresAt:    expiresAt,
+			Progress:     displayedProgress,
 			Target:       goal.Requirement.TargetValue,
-			Status:       string(progress.Status),
+			Status:       string(displayStatus),
 			ProgressMode: goal.Requirement.ProgressMode,
 			EventSource:  goal.EventSource,
 			Requirement:  goal.Requirement,

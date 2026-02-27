@@ -11,6 +11,7 @@ import (
 	"github.com/AccelByte/extend-challenge-common/pkg/client"
 	"github.com/AccelByte/extend-challenge-common/pkg/domain"
 	"github.com/AccelByte/extend-challenge-common/pkg/repository"
+	"github.com/AccelByte/extend-challenge-common/pkg/rotation"
 
 	"github.com/sirupsen/logrus"
 )
@@ -150,6 +151,19 @@ func ClaimGoalReward(
 	// M3 Phase 6: Validate goal is active
 	if !progress.IsActive {
 		return nil, &mapper.GoalNotActiveError{
+			GoalID:      goalID,
+			ChallengeID: challengeID,
+		}
+	}
+
+	// M5 Phase 6: Check if goal has rotated since completion
+	if rotation.HasRotationOccurred(progress, goal, time.Now().UTC()) {
+		logrus.WithFields(logrus.Fields{
+			"user_id":      userID,
+			"goal_id":      goalID,
+			"challenge_id": challengeID,
+		}).Warn("Claim rejected: goal has rotated")
+		return nil, &mapper.GoalRotatedError{
 			GoalID:      goalID,
 			ChallengeID: challengeID,
 		}

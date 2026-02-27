@@ -248,6 +248,8 @@ func TestOptimizedChallengesHandler_ServeHTTP_ActiveOnlyFalse(t *testing.T) {
 	challenges := createTestChallenges()
 	mockCache.On("GetAllChallenges").Return(challenges)
 	mockRepo.On("GetUserProgress", mock.Anything, "test-user", false).Return(createTestProgress(false), nil)
+	// M5: Handler now calls GetGoalByID for display rotation pre-processing
+	mockCache.On("GetGoalByID", "daily-login").Return(challenges[0].Goals[0])
 
 	// Create request without active_only parameter (default: false)
 	req := httptest.NewRequest(http.MethodGet, "/v1/challenges", nil)
@@ -290,6 +292,8 @@ func TestOptimizedChallengesHandler_ServeHTTP_ActiveOnlyTrue(t *testing.T) {
 	challenges := createTestChallenges()
 	mockCache.On("GetAllChallenges").Return(challenges)
 	mockRepo.On("GetUserProgress", mock.Anything, "test-user", true).Return(createTestProgress(true), nil)
+	// M5: Handler now calls GetGoalByID for display rotation pre-processing
+	mockCache.On("GetGoalByID", "daily-login").Return(challenges[0].Goals[0])
 
 	// Create request with active_only=true parameter
 	req := httptest.NewRequest(http.MethodGet, "/v1/challenges?active_only=true", nil)

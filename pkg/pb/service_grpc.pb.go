@@ -29,6 +29,7 @@ const (
 	Service_ClaimGoalReward_FullMethodName   = "/service.Service/ClaimGoalReward"
 	Service_BatchSelectGoals_FullMethodName  = "/service.Service/BatchSelectGoals"
 	Service_RandomSelectGoals_FullMethodName = "/service.Service/RandomSelectGoals"
+	Service_GetRotationStatus_FullMethodName = "/service.Service/GetRotationStatus"
 	Service_HealthCheck_FullMethodName       = "/service.Service/HealthCheck"
 )
 
@@ -49,6 +50,8 @@ type ServiceClient interface {
 	BatchSelectGoals(ctx context.Context, in *BatchSelectRequest, opts ...grpc.CallOption) (*GoalSelectionResponse, error)
 	// M4: Random goal selection
 	RandomSelectGoals(ctx context.Context, in *RandomSelectRequest, opts ...grpc.CallOption) (*GoalSelectionResponse, error)
+	// M5: Get rotation status for a challenge
+	GetRotationStatus(ctx context.Context, in *GetRotationStatusRequest, opts ...grpc.CallOption) (*GetRotationStatusResponse, error)
 	// Health check endpoint (Decision FQ5)
 	HealthCheck(ctx context.Context, in *HealthCheckRequest, opts ...grpc.CallOption) (*HealthCheckResponse, error)
 }
@@ -115,6 +118,15 @@ func (c *serviceClient) RandomSelectGoals(ctx context.Context, in *RandomSelectR
 	return out, nil
 }
 
+func (c *serviceClient) GetRotationStatus(ctx context.Context, in *GetRotationStatusRequest, opts ...grpc.CallOption) (*GetRotationStatusResponse, error) {
+	out := new(GetRotationStatusResponse)
+	err := c.cc.Invoke(ctx, Service_GetRotationStatus_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *serviceClient) HealthCheck(ctx context.Context, in *HealthCheckRequest, opts ...grpc.CallOption) (*HealthCheckResponse, error) {
 	out := new(HealthCheckResponse)
 	err := c.cc.Invoke(ctx, Service_HealthCheck_FullMethodName, in, out, opts...)
@@ -141,6 +153,8 @@ type ServiceServer interface {
 	BatchSelectGoals(context.Context, *BatchSelectRequest) (*GoalSelectionResponse, error)
 	// M4: Random goal selection
 	RandomSelectGoals(context.Context, *RandomSelectRequest) (*GoalSelectionResponse, error)
+	// M5: Get rotation status for a challenge
+	GetRotationStatus(context.Context, *GetRotationStatusRequest) (*GetRotationStatusResponse, error)
 	// Health check endpoint (Decision FQ5)
 	HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error)
 	mustEmbedUnimplementedServiceServer()
@@ -167,6 +181,9 @@ func (UnimplementedServiceServer) BatchSelectGoals(context.Context, *BatchSelect
 }
 func (UnimplementedServiceServer) RandomSelectGoals(context.Context, *RandomSelectRequest) (*GoalSelectionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RandomSelectGoals not implemented")
+}
+func (UnimplementedServiceServer) GetRotationStatus(context.Context, *GetRotationStatusRequest) (*GetRotationStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRotationStatus not implemented")
 }
 func (UnimplementedServiceServer) HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method HealthCheck not implemented")
@@ -292,6 +309,24 @@ func _Service_RandomSelectGoals_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Service_GetRotationStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRotationStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServiceServer).GetRotationStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Service_GetRotationStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServiceServer).GetRotationStatus(ctx, req.(*GetRotationStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Service_HealthCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(HealthCheckRequest)
 	if err := dec(in); err != nil {
@@ -340,6 +375,10 @@ var Service_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RandomSelectGoals",
 			Handler:    _Service_RandomSelectGoals_Handler,
+		},
+		{
+			MethodName: "GetRotationStatus",
+			Handler:    _Service_GetRotationStatus_Handler,
 		},
 		{
 			MethodName: "HealthCheck",

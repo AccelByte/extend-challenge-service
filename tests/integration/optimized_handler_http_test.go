@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -42,7 +43,7 @@ func setupOptimizedHandler(t *testing.T) (*handler.OptimizedChallengesHandler, *
 	// Convert domain challenges to protobuf format for cache warm-up
 	pbChallenges := make([]*pb.Challenge, 0, len(challengeConfig.Challenges))
 	for _, domainChallenge := range goalCache.GetAllChallenges() {
-		pbChallenge, err := mapper.ChallengeToProto(domainChallenge, nil)
+		pbChallenge, err := mapper.ChallengeToProto(domainChallenge, nil, time.Now().UTC())
 		if err != nil {
 			t.Fatalf("Failed to convert challenge %s: %v", domainChallenge.ID, err)
 		}
@@ -94,7 +95,7 @@ func setupOptimizedHandlerWithRealDB(t *testing.T) (*handler.OptimizedChallenges
 	// Convert domain challenges to protobuf format for cache warm-up
 	pbChallenges := make([]*pb.Challenge, 0, len(challengeConfig.Challenges))
 	for _, domainChallenge := range goalCache.GetAllChallenges() {
-		pbChallenge, err := mapper.ChallengeToProto(domainChallenge, nil)
+		pbChallenge, err := mapper.ChallengeToProto(domainChallenge, nil, time.Now().UTC())
 		if err != nil {
 			t.Fatalf("Failed to convert challenge %s: %v", domainChallenge.ID, err)
 		}

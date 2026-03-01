@@ -33,6 +33,17 @@ func assertTimestampsEqualHTTP(t *testing.T, expected, actual string, msgAndArgs
 	}
 }
 
+// findHTTPGoal finds a goal by goalId in a []interface{} array of goal maps
+func findHTTPGoal(goals []interface{}, goalID string) map[string]interface{} {
+	for _, g := range goals {
+		goalMap := g.(map[string]interface{})
+		if goalMap["goalId"] == goalID {
+			return goalMap
+		}
+	}
+	return nil
+}
+
 // TestInitializePlayer_FirstLogin_HTTP verifies that a new player receives default goals via HTTP
 func TestInitializePlayer_FirstLogin_HTTP(t *testing.T) {
 	handler, _, cleanup := setupHTTPTestServer(t)
@@ -54,19 +65,19 @@ func TestInitializePlayer_FirstLogin_HTTP(t *testing.T) {
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err, "Response should be valid JSON")
 
-	// Should assign 1 default goal (complete-tutorial)
-	assert.Equal(t, float64(1), resp["newAssignments"], "Should assign 1 new goal")
-	assert.Equal(t, float64(1), resp["totalActive"], "Should have 1 active goal")
+	// Should assign 3 default goals (complete-tutorial, daily-kills-relative, weekly-wins-no-reset)
+	assert.Equal(t, float64(3), resp["newAssignments"], "Should assign 3 new goals")
+	assert.Equal(t, float64(3), resp["totalActive"], "Should have 3 active goals")
 
 	// Validate assigned goals array
 	assignedGoals, ok := resp["assignedGoals"].([]interface{})
 	require.True(t, ok, "Response should have assignedGoals array")
-	assert.Len(t, assignedGoals, 1, "Should return 1 assigned goal")
+	assert.Len(t, assignedGoals, 3, "Should return 3 assigned goals")
 
-	// Validate assigned goal structure (camelCase field names!)
-	goal := assignedGoals[0].(map[string]interface{})
+	// Find complete-tutorial goal by ID
+	goal := findHTTPGoal(assignedGoals, "complete-tutorial")
+	require.NotNil(t, goal, "complete-tutorial goal should be in assigned goals")
 	assert.Equal(t, "winter-challenge-2025", goal["challengeId"], "Challenge ID should match")
-	assert.Equal(t, "complete-tutorial", goal["goalId"], "Goal ID should match")
 	assert.Equal(t, "Complete Tutorial", goal["name"], "Goal name should match")
 	assert.Equal(t, true, goal["isActive"], "Goal should be active")
 	assert.Equal(t, "not_started", goal["status"], "Initial status should be not_started")
@@ -112,11 +123,12 @@ func TestInitializePlayer_SubsequentLogin_FastPath_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w1.Code)
 	var resp1 map[string]interface{}
 	_ = json.NewDecoder(w1.Body).Decode(&resp1)
-	assert.Equal(t, float64(1), resp1["newAssignments"], "First call should assign 1 goal")
+	assert.Equal(t, float64(3), resp1["newAssignments"], "First call should assign 3 goals")
 
-	// Get assigned_at timestamp from first call
+	// Find complete-tutorial in first response and get assigned_at timestamp
 	assignedGoals1 := resp1["assignedGoals"].([]interface{})
-	goal1 := assignedGoals1[0].(map[string]interface{})
+	goal1 := findHTTPGoal(assignedGoals1, "complete-tutorial")
+	require.NotNil(t, goal1, "complete-tutorial goal should be in first response")
 	firstAssignedAt := goal1["assignedAt"].(string)
 
 	// Second initialization (fast path)
@@ -132,14 +144,14 @@ func TestInitializePlayer_SubsequentLogin_FastPath_HTTP(t *testing.T) {
 
 	// Assertions - fast path
 	assert.Equal(t, float64(0), resp2["newAssignments"], "Second call should assign 0 new goals (fast path)")
-	assert.Equal(t, float64(1), resp2["totalActive"], "Should still have 1 active goal")
+	assert.Equal(t, float64(3), resp2["totalActive"], "Should still have 3 active goals")
 
 	assignedGoals2 := resp2["assignedGoals"].([]interface{})
-	assert.Len(t, assignedGoals2, 1, "Should return 1 assigned goal")
+	assert.Len(t, assignedGoals2, 3, "Should return 3 assigned goals")
 
-	// Verify same goal is returned
-	goal2 := assignedGoals2[0].(map[string]interface{})
-	assert.Equal(t, "complete-tutorial", goal2["goalId"], "Same goal should be returned")
+	// Find complete-tutorial in second response and verify same goal is returned
+	goal2 := findHTTPGoal(assignedGoals2, "complete-tutorial")
+	require.NotNil(t, goal2, "complete-tutorial goal should be in second response")
 	assertTimestampsEqualHTTP(t, firstAssignedAt, goal2["assignedAt"].(string), "AssignedAt timestamp should not change")
 	assert.Equal(t, "not_started", goal2["status"], "Status should remain unchanged")
 	assert.Equal(t, float64(0), goal2["progress"], "Progress should remain unchanged")
@@ -169,28 +181,32 @@ func TestInitializePlayer_Idempotency_HTTP(t *testing.T) {
 		responses = append(responses, resp)
 	}
 
-	// First call should assign 1 goal
-	assert.Equal(t, float64(1), responses[0]["newAssignments"], "First call should assign 1 goal")
-	assert.Equal(t, float64(1), responses[0]["totalActive"], "First call should have 1 active goal")
+	// First call should assign 3 goals
+	assert.Equal(t, float64(3), responses[0]["newAssignments"], "First call should assign 3 goals")
+	assert.Equal(t, float64(3), responses[0]["totalActive"], "First call should have 3 active goals")
 
 	// All subsequent calls should be fast path (0 new assignments)
 	for i := 1; i < 5; i++ {
 		assert.Equal(t, float64(0), responses[i]["newAssignments"],
 			"Call %d should assign 0 new goals (fast path)", i+1)
-		assert.Equal(t, float64(1), responses[i]["totalActive"],
-			"Call %d should still have 1 active goal", i+1)
+		assert.Equal(t, float64(3), responses[i]["totalActive"],
+			"Call %d should still have 3 active goals", i+1)
 
 		assignedGoals := responses[i]["assignedGoals"].([]interface{})
-		assert.Len(t, assignedGoals, 1, "Call %d should return 1 assigned goal", i+1)
+		assert.Len(t, assignedGoals, 3, "Call %d should return 3 assigned goals", i+1)
 	}
 
-	// All calls should return the same goal_id
-	firstGoal := responses[0]["assignedGoals"].([]interface{})[0].(map[string]interface{})
+	// Find complete-tutorial in first response
+	firstGoals := responses[0]["assignedGoals"].([]interface{})
+	firstTutorialGoal := findHTTPGoal(firstGoals, "complete-tutorial")
+	require.NotNil(t, firstTutorialGoal, "complete-tutorial should be in first response")
+
+	// All subsequent calls should return the same complete-tutorial goal with same timestamp
 	for i := 1; i < 5; i++ {
-		goal := responses[i]["assignedGoals"].([]interface{})[0].(map[string]interface{})
-		assert.Equal(t, firstGoal["goalId"], goal["goalId"],
-			"All calls should return the same goal")
-		assertTimestampsEqualHTTP(t, firstGoal["assignedAt"].(string), goal["assignedAt"].(string),
+		goals := responses[i]["assignedGoals"].([]interface{})
+		tutorialGoal := findHTTPGoal(goals, "complete-tutorial")
+		require.NotNil(t, tutorialGoal, "Call %d should return complete-tutorial goal", i+1)
+		assertTimestampsEqualHTTP(t, firstTutorialGoal["assignedAt"].(string), tutorialGoal["assignedAt"].(string),
 			"AssignedAt timestamp should remain constant")
 	}
 }
@@ -211,7 +227,7 @@ func TestInitializePlayer_MultipleUsers_HTTP(t *testing.T) {
 
 	var resp1 map[string]interface{}
 	_ = json.NewDecoder(w1.Body).Decode(&resp1)
-	assert.Equal(t, float64(1), resp1["newAssignments"], "User 1 should get 1 goal")
+	assert.Equal(t, float64(3), resp1["newAssignments"], "User 1 should get 3 goals")
 
 	// Initialize user 2
 	user2ID := "init-user-multi-2-http"
@@ -224,9 +240,9 @@ func TestInitializePlayer_MultipleUsers_HTTP(t *testing.T) {
 
 	var resp2 map[string]interface{}
 	_ = json.NewDecoder(w2.Body).Decode(&resp2)
-	assert.Equal(t, float64(1), resp2["newAssignments"], "User 2 should get 1 goal")
+	assert.Equal(t, float64(3), resp2["newAssignments"], "User 2 should get 3 goals")
 
-	// Verify user 1 still has 1 goal on subsequent call (fast path)
+	// Verify user 1 still has 3 goals on subsequent call (fast path)
 	req1Again := httptest.NewRequest(http.MethodPost, "/v1/challenges/initialize", nil)
 	req1Again.Header.Set("x-mock-user-id", user1ID)
 	w1Again := httptest.NewRecorder()
@@ -237,5 +253,5 @@ func TestInitializePlayer_MultipleUsers_HTTP(t *testing.T) {
 	var resp1Again map[string]interface{}
 	_ = json.NewDecoder(w1Again.Body).Decode(&resp1Again)
 	assert.Equal(t, float64(0), resp1Again["newAssignments"], "User 1 should have 0 new assignments (fast path)")
-	assert.Equal(t, float64(1), resp1Again["totalActive"], "User 1 should still have 1 active goal")
+	assert.Equal(t, float64(3), resp1Again["totalActive"], "User 1 should still have 3 active goals")
 }

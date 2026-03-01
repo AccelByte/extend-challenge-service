@@ -39,6 +39,9 @@ func TestRandomSelectGoals_Success(t *testing.T) {
 	mockTx := new(MockTxRepository)
 
 	mockCache.On("GetChallengeByChallengeID", challengeID).Return(challenge)
+	for _, g := range challenge.Goals {
+		mockCache.On("GetGoalByID", g.ID).Return(g).Maybe()
+	}
 	mockRepo.On("GetChallengeProgress", ctx, userID, challengeID, false).Return(userProgress, nil)
 	mockRepo.On("BeginTx", ctx).Return(mockTx, nil)
 	mockTx.On("BatchUpsertGoalActive", ctx, mock.AnythingOfType("[]*domain.UserGoalProgress")).Return(nil)
@@ -113,6 +116,9 @@ func TestRandomSelectGoals_ReplaceExisting(t *testing.T) {
 	mockTx := new(MockTxRepository)
 
 	mockCache.On("GetChallengeByChallengeID", challengeID).Return(challenge)
+	for _, g := range challenge.Goals {
+		mockCache.On("GetGoalByID", g.ID).Return(g).Maybe()
+	}
 	mockRepo.On("GetChallengeProgress", ctx, userID, challengeID, false).Return(userProgress, nil)
 	mockRepo.On("BeginTx", ctx).Return(mockTx, nil)
 	// Expect deactivation batch
@@ -201,6 +207,9 @@ func TestRandomSelectGoals_ExcludeActive(t *testing.T) {
 	mockTx := new(MockTxRepository)
 
 	mockCache.On("GetChallengeByChallengeID", challengeID).Return(challenge)
+	for _, g := range challenge.Goals {
+		mockCache.On("GetGoalByID", g.ID).Return(g).Maybe()
+	}
 	mockRepo.On("GetChallengeProgress", ctx, userID, challengeID, false).Return(userProgress, nil)
 	mockRepo.On("BeginTx", ctx).Return(mockTx, nil)
 	mockTx.On("BatchUpsertGoalActive", ctx, mock.AnythingOfType("[]*domain.UserGoalProgress")).Return(nil)
@@ -245,6 +254,9 @@ func TestRandomSelectGoals_PartialResults(t *testing.T) {
 	mockTx := new(MockTxRepository)
 
 	mockCache.On("GetChallengeByChallengeID", challengeID).Return(challenge)
+	for _, g := range challenge.Goals {
+		mockCache.On("GetGoalByID", g.ID).Return(g).Maybe()
+	}
 	mockRepo.On("GetChallengeProgress", ctx, userID, challengeID, false).Return(userProgress, nil)
 	mockRepo.On("BeginTx", ctx).Return(mockTx, nil)
 	mockTx.On("BatchUpsertGoalActive", ctx, mock.AnythingOfType("[]*domain.UserGoalProgress")).Return(nil)

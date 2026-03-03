@@ -1,6 +1,7 @@
 package cleanup
 
 import (
+	"log/slog"
 	"time"
 
 	"extend-challenge-service/pkg/common"
@@ -8,18 +9,47 @@ import (
 
 // CleanupConfig holds configuration for the expired row cleanup goroutine.
 type CleanupConfig struct {
-	Enabled       bool
-	Interval      time.Duration
-	RetentionDays int
-	BatchSize     int
+	Enabled            bool
+	Interval           time.Duration
+	RetentionDays      int
+	BatchSize          int
+	MaxBatchesPerCycle int
 }
 
 // NewCleanupConfigFromEnv creates a CleanupConfig from environment variables.
+// Dangerous values are clamped to safe minimums to prevent panics and infinite loops.
 func NewCleanupConfigFromEnv() CleanupConfig {
+	logger := slog.Default()
+
+	interval := common.GetEnvInt("CLEANUP_INTERVAL_MINUTES", 60)
+	if interval < 1 {
+		logger.Warn("CLEANUP_INTERVAL_MINUTES clamped to minimum 1", "original", interval)
+		interval = 1
+	}
+
+	retentionDays := common.GetEnvInt("CLEANUP_RETENTION_DAYS", 7)
+	if retentionDays < 0 {
+		logger.Warn("CLEANUP_RETENTION_DAYS clamped to minimum 0", "original", retentionDays)
+		retentionDays = 0
+	}
+
+	batchSize := common.GetEnvInt("CLEANUP_BATCH_SIZE", 1000)
+	if batchSize < 1 {
+		logger.Warn("CLEANUP_BATCH_SIZE clamped to minimum 1", "original", batchSize)
+		batchSize = 1
+	}
+
+	maxBatches := common.GetEnvInt("CLEANUP_MAX_BATCHES_PER_CYCLE", 100)
+	if maxBatches < 1 {
+		logger.Warn("CLEANUP_MAX_BATCHES_PER_CYCLE clamped to minimum 1", "original", maxBatches)
+		maxBatches = 1
+	}
+
 	return CleanupConfig{
-		Enabled:       common.GetEnvBool("CLEANUP_ENABLED", true),
-		Interval:      time.Duration(common.GetEnvInt("CLEANUP_INTERVAL_MINUTES", 60)) * time.Minute,
-		RetentionDays: common.GetEnvInt("CLEANUP_RETENTION_DAYS", 7),
-		BatchSize:     common.GetEnvInt("CLEANUP_BATCH_SIZE", 1000),
+		Enabled:            common.GetEnvBool("CLEANUP_ENABLED", true),
+		Interval:           time.Duration(interval) * time.Minute,
+		RetentionDays:      retentionDays,
+		BatchSize:          batchSize,
+		MaxBatchesPerCycle: maxBatches,
 	}
 }

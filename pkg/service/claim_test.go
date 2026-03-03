@@ -155,6 +155,16 @@ func (m *MockTxRepository) BatchUpsertGoalActive(ctx context.Context, progresses
 	return args.Error(0)
 }
 
+func (m *MockTxRepository) DeleteExpiredRows(ctx context.Context, cutoff time.Time, batchSize int) (int64, error) {
+	args := m.Called(ctx, cutoff, batchSize)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockTxRepository) DeleteUserData(ctx context.Context, userID string) (int64, error) {
+	args := m.Called(ctx, userID)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 // Test Fixtures
 
 func createClaimableGoal(goalID, challengeID string) *domain.Goal {

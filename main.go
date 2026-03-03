@@ -310,6 +310,15 @@ func main() {
 			common.Validator, // Token validator (may be nil if auth disabled)
 		)
 
+		// Create GDPR deletion handler (DELETE /v1/users/me/data)
+		gdprDeletionHandler := handler.NewGDPRDeletionHandler(
+			goalRepo,
+			namespace,
+			authEnabled,
+			common.Validator, // Token validator (may be nil if auth disabled)
+			slogLogger,
+		)
+
 		grpcGatewayHTTPServer := newGRPCGatewayHTTPServer(
 			fmt.Sprintf(":%d", grpcGatewayHTTPPort),
 			grpcGateway,
@@ -317,6 +326,7 @@ func main() {
 			swaggerDir,
 			optimizedChallengesHandler, // Pass optimized challenges handler
 			optimizedInitializeHandler, // Pass optimized initialize handler
+			gdprDeletionHandler,        // Pass GDPR deletion handler
 			basePath,
 		)
 		logrus.Infof("Starting gRPC-Gateway HTTP server on port %d (with optimized /v1/challenges and /v1/challenges/initialize endpoints)", grpcGatewayHTTPPort)
@@ -418,6 +428,7 @@ func newGRPCGatewayHTTPServer(
 	swaggerDir string,
 	optimizedChallengesHandler *handler.OptimizedChallengesHandler,
 	optimizedInitializeHandler *handler.OptimizedInitializeHandler,
+	gdprDeletionHandler *handler.GDPRDeletionHandler,
 	basePath string,
 ) *http.Server {
 	// Create a new ServeMux
@@ -436,6 +447,11 @@ func newGRPCGatewayHTTPServer(
 	optimizedInitializePath := basePath + "/v1/challenges/initialize"
 	mux.Handle(optimizedInitializePath, optimizedInitializeHandler)
 	logger.Infof("Registered optimized handler for %s (direct JSON encoding enabled)", optimizedInitializePath)
+
+	// Register GDPR deletion endpoint (M6: DELETE /v1/users/me/data)
+	gdprDeletionPath := basePath + "/v1/users/me/data"
+	mux.Handle(gdprDeletionPath, gdprDeletionHandler)
+	logger.Infof("Registered GDPR deletion handler for %s", gdprDeletionPath)
 
 	// Add the gRPC-Gateway handler as catch-all (must be last)
 	// This handles all other endpoints including /v1/challenges/{id}/goals/{id}/claim

@@ -1,0 +1,133 @@
+package handler
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net/http"
+
+	"github.com/AccelByte/accelbyte-go-sdk/services-api/pkg/utils/auth/validator"
+	commonRepo "github.com/AccelByte/extend-challenge-common/pkg/repository"
+)
+
+// GDPRDeletionResponse is the JSON response for GDPR data deletion.
+type GDPRDeletionResponse struct {
+	UserID      string `json:"userId"`
+	RowsDeleted int64  `json:"rowsDeleted"`
+}
+
+// GDPRDeletionHandler handles DELETE /v1/users/me/data for GDPR compliance.
+// It deletes all goal progress data for the authenticated user.
+type GDPRDeletionHandler struct {
+	repo           commonRepo.GoalRepository
+	namespace      string
+	authEnabled    bool
+	tokenValidator validator.AuthTokenValidator
+	logger         *slog.Logger
+}
+
+// NewGDPRDeletionHandler creates a new GDPR deletion handler.
+func NewGDPRDeletionHandler(
+	repo commonRepo.GoalRepository,
+	namespace string,
+	authEnabled bool,
+	tokenValidator validator.AuthTokenValidator,
+	logger *slog.Logger,
+) *GDPRDeletionHandler {
+	return &GDPRDeletionHandler{
+		repo:           repo,
+		namespace:      namespace,
+		authEnabled:    authEnabled,
+		tokenValidator: tokenValidator,
+		logger:         logger,
+	}
+}
+
+// ServeHTTP handles the GDPR deletion request.
+func (h *GDPRDeletionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, err := h.extractUserID(r)
+	if err != nil {
+		h.logger.Warn("GDPR deletion auth failure", "error", err)
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	deleted, err := h.repo.DeleteUserData(r.Context(), userID)
+	if err != nil {
+		h.logger.Error("GDPR deletion failed", "userId", userID, "error", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info("GDPR deletion completed", "userId", userID, "rowsDeleted", deleted)
+
+	resp := GDPRDeletionResponse{
+		UserID:      userID,
+		RowsDeleted: deleted,
+	}
+
+	respJSON, err := json.Marshal(resp)
+	if err != nil {
+		h.logger.Error("GDPR deletion response marshal failed", "error", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(respJSON)
+}
+
+// extractUserID extracts the user ID from the request using the same pattern as OptimizedChallengesHandler.
+func (h *GDPRDeletionHandler) extractUserID(r *http.Request) (string, error) {
+	if !h.authEnabled {
+		userID := r.Header.Get("x-mock-user-id")
+		if userID == "" {
+			userID = "test-user-id"
+		}
+		return userID, nil
+	}
+
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return "", &authError{message: "missing authorization header"}
+	}
+
+	token := trimBearerPrefix(authHeader)
+	if token == authHeader {
+		return "", &authError{message: "invalid authorization header format"}
+	}
+
+	if h.tokenValidator == nil {
+		return "", &authError{message: "token validator not initialized"}
+	}
+
+	err := h.tokenValidator.Validate(token, nil, &h.namespace, nil)
+	if err != nil {
+		return "", &authError{message: "invalid token", cause: err}
+	}
+
+	claims, err := decodeJWTClaims(token)
+	if err != nil {
+		return "", &authError{message: "failed to decode JWT claims", cause: err}
+	}
+
+	if claims.Sub == "" {
+		return "", &authError{message: "user ID not found in token claims"}
+	}
+
+	return claims.Sub, nil
+}
+
+// trimBearerPrefix removes "Bearer " prefix from auth header.
+func trimBearerPrefix(header string) string {
+	const prefix = "Bearer "
+	if len(header) > len(prefix) && header[:len(prefix)] == prefix {
+		return header[len(prefix):]
+	}
+	return header
+}

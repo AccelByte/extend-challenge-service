@@ -9,12 +9,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AccelByte/extend-challenge-common/pkg/domain"
+	"github.com/AccelByte/extend-challenge-common/pkg/repository"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	"github.com/stretchr/testify/mock"
 )
 
-// mockCleaner is a test double for the Cleaner interface.
-type mockCleaner struct {
+// mockRepo is a mock that implements repository.GoalRepository for cleanup tests.
+// Only DeleteExpiredRows is exercised; other methods are stubs.
+type mockRepo struct {
+	mock.Mock
 	mu      sync.Mutex
 	calls   []mockCleanerCall
 	results []mockCleanerResult
@@ -31,7 +36,7 @@ type mockCleanerResult struct {
 	err     error
 }
 
-func (m *mockCleaner) DeleteExpiredRows(_ context.Context, cutoff time.Time, batchSize int) (int64, error) {
+func (m *mockRepo) DeleteExpiredRows(_ context.Context, cutoff time.Time, batchSize int) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -45,13 +50,51 @@ func (m *mockCleaner) DeleteExpiredRows(_ context.Context, cutoff time.Time, bat
 	return r.deleted, r.err
 }
 
-func (m *mockCleaner) getCalls() []mockCleanerCall {
+func (m *mockRepo) getCalls() []mockCleanerCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := make([]mockCleanerCall, len(m.calls))
 	copy(cp, m.calls)
 	return cp
 }
+
+// Stub implementations for GoalRepository interface (not used by cleanup).
+func (m *mockRepo) GetProgress(_ context.Context, _, _ string) (*domain.UserGoalProgress, error) {
+	return nil, nil
+}
+func (m *mockRepo) GetUserProgress(_ context.Context, _ string, _ bool) ([]*domain.UserGoalProgress, error) {
+	return nil, nil
+}
+func (m *mockRepo) GetChallengeProgress(_ context.Context, _, _ string, _ bool) ([]*domain.UserGoalProgress, error) {
+	return nil, nil
+}
+func (m *mockRepo) UpsertProgress(_ context.Context, _ *domain.UserGoalProgress) error { return nil }
+func (m *mockRepo) BatchUpsertProgress(_ context.Context, _ []*domain.UserGoalProgress) error {
+	return nil
+}
+func (m *mockRepo) BatchUpsertProgressWithCOPY(_ context.Context, _ []repository.CopyRow) error {
+	return nil
+}
+func (m *mockRepo) MarkAsClaimed(_ context.Context, _, _ string) error { return nil }
+func (m *mockRepo) BeginTx(_ context.Context) (repository.TxRepository, error) {
+	return nil, nil
+}
+func (m *mockRepo) GetGoalsByIDs(_ context.Context, _ string, _ []string) ([]*domain.UserGoalProgress, error) {
+	return nil, nil
+}
+func (m *mockRepo) BulkInsert(_ context.Context, _ []*domain.UserGoalProgress) error { return nil }
+func (m *mockRepo) BulkInsertWithCOPY(_ context.Context, _ []*domain.UserGoalProgress) error {
+	return nil
+}
+func (m *mockRepo) UpsertGoalActive(_ context.Context, _ *domain.UserGoalProgress) error { return nil }
+func (m *mockRepo) BatchUpsertGoalActive(_ context.Context, _ []*domain.UserGoalProgress) error {
+	return nil
+}
+func (m *mockRepo) GetUserGoalCount(_ context.Context, _ string) (int, error) { return 0, nil }
+func (m *mockRepo) GetActiveGoals(_ context.Context, _ string) ([]*domain.UserGoalProgress, error) {
+	return nil, nil
+}
+func (m *mockRepo) DeleteUserData(_ context.Context, _ string) (int64, error) { return 0, nil }
 
 // resetMetrics creates fresh metric instances for test isolation.
 func resetMetrics() {
@@ -85,13 +128,13 @@ func testLogger() *slog.Logger {
 }
 
 func TestStartCleanupGoroutine_Disabled(t *testing.T) {
-	mock := &mockCleaner{}
+	m := &mockRepo{}
 	cfg := CleanupConfig{Enabled: false}
 
-	// Should return immediately without calling cleaner
-	StartCleanupGoroutine(context.Background(), mock, cfg, testLogger())
+	// Should return immediately without calling repo
+	StartCleanupGoroutine(context.Background(), m, cfg, testLogger())
 
-	calls := mock.getCalls()
+	calls := m.getCalls()
 	if len(calls) != 0 {
 		t.Errorf("expected 0 calls when disabled, got %d", len(calls))
 	}
@@ -100,20 +143,21 @@ func TestStartCleanupGoroutine_Disabled(t *testing.T) {
 func TestRunCleanupCycle_HappyPath(t *testing.T) {
 	resetMetrics()
 
-	mock := &mockCleaner{
+	m := &mockRepo{
 		results: []mockCleanerResult{
 			{deleted: 500, err: nil}, // < batchSize, so only 1 call
 		},
 	}
 	cfg := CleanupConfig{
-		Enabled:       true,
-		RetentionDays: 7,
-		BatchSize:     1000,
+		Enabled:            true,
+		RetentionDays:      7,
+		BatchSize:          1000,
+		MaxBatchesPerCycle: 100,
 	}
 
-	runCleanupCycle(context.Background(), mock, cfg, testLogger())
+	runCleanupCycle(context.Background(), m, cfg, testLogger())
 
-	calls := mock.getCalls()
+	calls := m.getCalls()
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(calls))
 	}
@@ -134,7 +178,7 @@ func TestRunCleanupCycle_HappyPath(t *testing.T) {
 func TestRunCleanupCycle_MultipleBatches(t *testing.T) {
 	resetMetrics()
 
-	mock := &mockCleaner{
+	m := &mockRepo{
 		results: []mockCleanerResult{
 			{deleted: 1000, err: nil}, // == batchSize, continue
 			{deleted: 1000, err: nil}, // == batchSize, continue
@@ -142,14 +186,15 @@ func TestRunCleanupCycle_MultipleBatches(t *testing.T) {
 		},
 	}
 	cfg := CleanupConfig{
-		Enabled:       true,
-		RetentionDays: 7,
-		BatchSize:     1000,
+		Enabled:            true,
+		RetentionDays:      7,
+		BatchSize:          1000,
+		MaxBatchesPerCycle: 100,
 	}
 
-	runCleanupCycle(context.Background(), mock, cfg, testLogger())
+	runCleanupCycle(context.Background(), m, cfg, testLogger())
 
-	calls := mock.getCalls()
+	calls := m.getCalls()
 	if len(calls) != 3 {
 		t.Fatalf("expected 3 calls, got %d", len(calls))
 	}
@@ -162,21 +207,22 @@ func TestRunCleanupCycle_MultipleBatches(t *testing.T) {
 func TestRunCleanupCycle_Error(t *testing.T) {
 	resetMetrics()
 
-	mock := &mockCleaner{
+	m := &mockRepo{
 		results: []mockCleanerResult{
 			{deleted: 1000, err: nil},
 			{deleted: 0, err: errors.New("db connection lost")},
 		},
 	}
 	cfg := CleanupConfig{
-		Enabled:       true,
-		RetentionDays: 7,
-		BatchSize:     1000,
+		Enabled:            true,
+		RetentionDays:      7,
+		BatchSize:          1000,
+		MaxBatchesPerCycle: 100,
 	}
 
-	runCleanupCycle(context.Background(), mock, cfg, testLogger())
+	runCleanupCycle(context.Background(), m, cfg, testLogger())
 
-	calls := mock.getCalls()
+	calls := m.getCalls()
 	if len(calls) != 2 {
 		t.Fatalf("expected 2 calls (abort after error), got %d", len(calls))
 	}
@@ -194,22 +240,23 @@ func TestRunCleanupCycle_Error(t *testing.T) {
 func TestRunCleanupCycle_CorrectCutoff(t *testing.T) {
 	resetMetrics()
 
-	mock := &mockCleaner{
+	m := &mockRepo{
 		results: []mockCleanerResult{
 			{deleted: 0, err: nil},
 		},
 	}
 	cfg := CleanupConfig{
-		Enabled:       true,
-		RetentionDays: 7,
-		BatchSize:     1000,
+		Enabled:            true,
+		RetentionDays:      7,
+		BatchSize:          1000,
+		MaxBatchesPerCycle: 100,
 	}
 
 	before := time.Now().UTC().Add(-7 * 24 * time.Hour)
-	runCleanupCycle(context.Background(), mock, cfg, testLogger())
+	runCleanupCycle(context.Background(), m, cfg, testLogger())
 	after := time.Now().UTC().Add(-7 * 24 * time.Hour)
 
-	calls := mock.getCalls()
+	calls := m.getCalls()
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(calls))
 	}
@@ -222,17 +269,20 @@ func TestRunCleanupCycle_CorrectCutoff(t *testing.T) {
 }
 
 func TestStartCleanupGoroutine_ContextCancel(t *testing.T) {
-	mock := &mockCleaner{}
+	resetMetrics()
+
+	m := &mockRepo{}
 	cfg := CleanupConfig{
-		Enabled:  true,
-		Interval: 100 * time.Millisecond,
+		Enabled:            true,
+		Interval:           100 * time.Millisecond,
+		MaxBatchesPerCycle: 100,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan struct{})
 	go func() {
-		StartCleanupGoroutine(ctx, mock, cfg, testLogger())
+		StartCleanupGoroutine(ctx, m, cfg, testLogger())
 		close(done)
 	}()
 
@@ -245,5 +295,83 @@ func TestStartCleanupGoroutine_ContextCancel(t *testing.T) {
 		// Goroutine exited cleanly
 	case <-time.After(2 * time.Second):
 		t.Fatal("goroutine did not exit within 2 seconds after cancel")
+	}
+}
+
+func TestStartCleanupGoroutine_ImmediateExecution(t *testing.T) {
+	resetMetrics()
+
+	m := &mockRepo{
+		results: []mockCleanerResult{
+			{deleted: 42, err: nil}, // immediate execution result
+		},
+	}
+	cfg := CleanupConfig{
+		Enabled:            true,
+		Interval:           10 * time.Second, // Long interval so ticker won't fire
+		RetentionDays:      7,
+		BatchSize:          1000,
+		MaxBatchesPerCycle: 100,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		StartCleanupGoroutine(ctx, m, cfg, testLogger())
+		close(done)
+	}()
+
+	// Wait briefly for immediate execution to complete
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("goroutine did not exit within 2 seconds after cancel")
+	}
+
+	// Verify that cleanup ran immediately (before any ticker fire)
+	calls := m.getCalls()
+	if len(calls) < 1 {
+		t.Fatalf("expected at least 1 call from immediate execution, got %d", len(calls))
+	}
+}
+
+func TestRunCleanupCycle_MaxBatchesGuard(t *testing.T) {
+	resetMetrics()
+
+	// Return full batches every time (would loop forever without max guard)
+	m := &mockRepo{
+		results: []mockCleanerResult{
+			{deleted: 100, err: nil},
+			{deleted: 100, err: nil},
+			{deleted: 100, err: nil},
+			{deleted: 100, err: nil},
+			{deleted: 100, err: nil},
+		},
+	}
+	cfg := CleanupConfig{
+		Enabled:            true,
+		RetentionDays:      7,
+		BatchSize:          100,
+		MaxBatchesPerCycle: 3, // Limit to 3 batches
+	}
+
+	runCleanupCycle(context.Background(), m, cfg, testLogger())
+
+	calls := m.getCalls()
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 calls (max batches limit), got %d", len(calls))
+	}
+
+	if v := getCounterValue(cleanupRowsDeleted); v != 300 {
+		t.Errorf("expected rows_deleted=300, got %f", v)
+	}
+
+	// Cycle should still be counted as complete
+	if v := getCounterValue(cleanupCyclesTotal); v != 1 {
+		t.Errorf("expected cycles_total=1, got %f", v)
 	}
 }

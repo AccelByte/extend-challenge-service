@@ -4,17 +4,14 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/AccelByte/extend-challenge-common/pkg/repository"
 )
 
-// Cleaner is the interface for deleting expired rows.
-// PostgresGoalRepository satisfies this via Go's structural typing.
-type Cleaner interface {
-	DeleteExpiredRows(ctx context.Context, cutoff time.Time, batchSize int) (int64, error)
-}
-
 // StartCleanupGoroutine launches a background goroutine that periodically deletes expired rows.
+// It runs one cleanup cycle immediately on startup, then enters the ticker loop.
 // It blocks until ctx is cancelled if enabled, or returns immediately if disabled.
-func StartCleanupGoroutine(ctx context.Context, cleaner Cleaner, cfg CleanupConfig, logger *slog.Logger) {
+func StartCleanupGoroutine(ctx context.Context, repo repository.GoalRepository, cfg CleanupConfig, logger *slog.Logger) {
 	if !cfg.Enabled {
 		logger.Info("cleanup goroutine disabled via CLEANUP_ENABLED=false")
 		return
@@ -24,7 +21,11 @@ func StartCleanupGoroutine(ctx context.Context, cleaner Cleaner, cfg CleanupConf
 		"interval", cfg.Interval,
 		"retentionDays", cfg.RetentionDays,
 		"batchSize", cfg.BatchSize,
+		"maxBatchesPerCycle", cfg.MaxBatchesPerCycle,
 	)
+
+	// Run immediately on startup before entering the ticker loop
+	runCleanupCycle(ctx, repo, cfg, logger)
 
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
@@ -35,24 +36,26 @@ func StartCleanupGoroutine(ctx context.Context, cleaner Cleaner, cfg CleanupConf
 			logger.Info("cleanup goroutine stopping due to context cancellation")
 			return
 		case <-ticker.C:
-			runCleanupCycle(ctx, cleaner, cfg, logger)
+			runCleanupCycle(ctx, repo, cfg, logger)
 		}
 	}
 }
 
 // runCleanupCycle executes one cleanup cycle, deleting expired rows in batches.
-func runCleanupCycle(ctx context.Context, cleaner Cleaner, cfg CleanupConfig, logger *slog.Logger) {
+// It stops after MaxBatchesPerCycle batches to prevent sustained DB pressure.
+func runCleanupCycle(ctx context.Context, repo repository.GoalRepository, cfg CleanupConfig, logger *slog.Logger) {
 	start := time.Now()
 	cutoff := time.Now().UTC().Add(-time.Duration(cfg.RetentionDays) * 24 * time.Hour)
 
 	var totalDeleted int64
+	batchCount := 0
 	for {
 		if ctx.Err() != nil {
 			logger.Info("cleanup cycle interrupted by context cancellation")
 			return
 		}
 
-		deleted, err := cleaner.DeleteExpiredRows(ctx, cutoff, cfg.BatchSize)
+		deleted, err := repo.DeleteExpiredRows(ctx, cutoff, cfg.BatchSize)
 		if err != nil {
 			cleanupErrors.Inc()
 			logger.Error("cleanup batch failed", "error", err, "totalDeletedSoFar", totalDeleted)
@@ -60,8 +63,17 @@ func runCleanupCycle(ctx context.Context, cleaner Cleaner, cfg CleanupConfig, lo
 		}
 
 		totalDeleted += deleted
+		batchCount++
 
 		if deleted < int64(cfg.BatchSize) {
+			break
+		}
+
+		if batchCount >= cfg.MaxBatchesPerCycle {
+			logger.Warn("cleanup cycle hit max batches limit, remaining rows will be cleaned next cycle",
+				"maxBatchesPerCycle", cfg.MaxBatchesPerCycle,
+				"totalDeletedSoFar", totalDeleted,
+			)
 			break
 		}
 
@@ -81,6 +93,7 @@ func runCleanupCycle(ctx context.Context, cleaner Cleaner, cfg CleanupConfig, lo
 
 	logger.Info("cleanup cycle completed",
 		"rowsDeleted", totalDeleted,
+		"batches", batchCount,
 		"duration", duration,
 		"cutoff", cutoff,
 	)

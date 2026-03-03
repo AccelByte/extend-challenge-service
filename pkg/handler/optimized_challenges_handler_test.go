@@ -179,6 +179,16 @@ func (m *MockGoalRepository) GetActiveGoals(ctx context.Context, userID string) 
 	return args.Get(0).([]*commonDomain.UserGoalProgress), args.Error(1)
 }
 
+func (m *MockGoalRepository) DeleteExpiredRows(ctx context.Context, cutoff time.Time, batchSize int) (int64, error) {
+	args := m.Called(ctx, cutoff, batchSize)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockGoalRepository) DeleteUserData(ctx context.Context, userID string) (int64, error) {
+	args := m.Called(ctx, userID)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 // createTestChallengesWithRotation returns challenges including one with daily rotation (relative mode)
 func createTestChallengesWithRotation() []*commonDomain.Challenge {
 	return []*commonDomain.Challenge{

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/AccelByte/accelbyte-go-sdk/services-api/pkg/utils/auth/validator"
@@ -38,6 +39,7 @@ type GDPRDeletionHandler struct {
 	authEnabled    bool
 	tokenValidator validator.AuthTokenValidator
 	logger         *slog.Logger
+	rateLimiter    sync.Map // map[string]time.Time — last request time per user
 }
 
 // NewGDPRDeletionHandler creates a new GDPR deletion handler.
@@ -70,6 +72,16 @@ func (h *GDPRDeletionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing or invalid authentication token")
 		return
 	}
+
+	// Per-user rate limit: 1 request per minute
+	now := time.Now()
+	if lastVal, ok := h.rateLimiter.Load(userID); ok {
+		if lastTime, valid := lastVal.(time.Time); valid && now.Sub(lastTime) < time.Minute {
+			writeJSONError(w, http.StatusTooManyRequests, "RATE_LIMITED", "GDPR deletion rate limit exceeded, try again later")
+			return
+		}
+	}
+	h.rateLimiter.Store(userID, now)
 
 	deleted, err := h.repo.DeleteUserData(r.Context(), h.namespace, userID)
 	if err != nil {

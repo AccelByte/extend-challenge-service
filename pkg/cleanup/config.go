@@ -14,9 +14,10 @@ type CleanupConfig struct {
 	RetentionDays      int
 	BatchSize          int
 	MaxBatchesPerCycle int
-	BatchPauseMs       int // Pause between batches in milliseconds (default 50, min 10, max 5000)
-	InitialMaxBatches  int // Max batches per cycle during initial turbo mode (default 1000)
-	InitialCycles      int // Number of initial cycles to use turbo mode (default 3)
+	BatchPauseMs       int           // Pause between batches in milliseconds (default 50, min 10, max 5000)
+	InitialMaxBatches  int           // Max batches per cycle during initial turbo mode (default 1000)
+	InitialCycles      int           // Number of initial cycles to use turbo mode (default 3)
+	RetryBackoff       time.Duration // Backoff between retry attempts on transient DB errors (default 5s)
 }
 
 // effectiveMaxBatches returns the max batches limit for a given cycle number.
@@ -88,5 +89,6 @@ func NewCleanupConfigFromEnv() CleanupConfig {
 		BatchPauseMs:       batchPauseMs,
 		InitialMaxBatches:  initialMaxBatches,
 		InitialCycles:      initialCycles,
+		RetryBackoff:       5 * time.Second,
 	}
 }

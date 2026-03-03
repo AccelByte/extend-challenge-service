@@ -110,15 +110,15 @@ func runCleanupCycle(ctx context.Context, repo repository.GoalRepository, cfg Cl
 		cleanupDuration.Observe(duration.Seconds())
 	}()
 
-	// D2: Reusable timer for inter-batch pauses (avoids timer garbage from time.After)
 	pauseDuration := time.Duration(cfg.BatchPauseMs) * time.Millisecond
-	pauseTimer := time.NewTimer(0)
-	if !pauseTimer.Stop() {
-		<-pauseTimer.C
-	}
-	defer pauseTimer.Stop()
 
 	var totalDeleted int64
+	defer func() {
+		if totalDeleted > 0 {
+			cleanupRowsDeleted.Add(float64(totalDeleted))
+		}
+	}()
+
 	batchCount := 0
 	for {
 		if ctx.Err() != nil {
@@ -126,11 +126,24 @@ func runCleanupCycle(ctx context.Context, repo repository.GoalRepository, cfg Cl
 			return
 		}
 
-		deleted, err := repo.DeleteExpiredRows(ctx, namespace, cutoff, cfg.BatchSize)
-		if err != nil {
+		const maxRetries = 3
+		var deleted int64
+		var err error
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			deleted, err = repo.DeleteExpiredRows(ctx, namespace, cutoff, cfg.BatchSize)
+			if err == nil {
+				break
+			}
 			cleanupErrors.Inc()
-			logger.Error("cleanup batch failed", "error", err, "totalDeletedSoFar", totalDeleted)
-			return
+			logger.Error("cleanup batch failed", "error", err, "attempt", attempt, "maxRetries", maxRetries, "totalDeletedSoFar", totalDeleted)
+			if attempt == maxRetries {
+				return
+			}
+			select {
+			case <-time.After(cfg.RetryBackoff):
+			case <-ctx.Done():
+				return
+			}
 		}
 
 		totalDeleted += deleted
@@ -149,19 +162,13 @@ func runCleanupCycle(ctx context.Context, repo repository.GoalRepository, cfg Cl
 		}
 
 		// Pause between batches to avoid I/O starvation
-		pauseTimer.Reset(pauseDuration)
 		select {
-		case <-pauseTimer.C:
+		case <-time.After(pauseDuration):
 		case <-ctx.Done():
-			if !pauseTimer.Stop() {
-				<-pauseTimer.C
-			}
 			logger.Info("cleanup cycle interrupted by context cancellation")
 			return
 		}
 	}
-
-	cleanupRowsDeleted.Add(float64(totalDeleted))
 
 	logger.Info("cleanup cycle completed",
 		"rowsDeleted", totalDeleted,

@@ -215,6 +215,8 @@ func TestRunCleanupCycle_Error(t *testing.T) {
 		results: []mockCleanerResult{
 			{deleted: 1000, err: nil},
 			{deleted: 0, err: errors.New("db connection lost")},
+			{deleted: 0, err: errors.New("db connection lost")},
+			{deleted: 0, err: errors.New("db connection lost")},
 		},
 	}
 	cfg := CleanupConfig{
@@ -222,22 +224,30 @@ func TestRunCleanupCycle_Error(t *testing.T) {
 		RetentionDays:      7,
 		BatchSize:          1000,
 		MaxBatchesPerCycle: 100,
+		RetryBackoff:       1 * time.Millisecond,
 	}
 
 	runCleanupCycle(context.Background(), m, cfg, "test-ns", cfg.MaxBatchesPerCycle, testLogger())
 
 	calls := m.getCalls()
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 calls (abort after error), got %d", len(calls))
+	// 1 successful batch + 3 retry attempts on the second batch
+	if len(calls) != 4 {
+		t.Fatalf("expected 4 calls (1 success + 3 retries), got %d", len(calls))
 	}
 
-	if v := getCounterValue(cleanupErrors); v != 1 {
-		t.Errorf("expected errors_total=1, got %f", v)
+	// 3 errors from the retry attempts
+	if v := getCounterValue(cleanupErrors); v != 3 {
+		t.Errorf("expected errors_total=3, got %f", v)
 	}
 
 	// D4: cycles_total is always incremented (via defer), even on error
 	if v := getCounterValue(cleanupCyclesTotal); v != 1 {
 		t.Errorf("expected cycles_total=1 on error (deferred), got %f", v)
+	}
+
+	// Verify partial deletion is recorded via defer
+	if v := getCounterValue(cleanupRowsDeleted); v != 1000 {
+		t.Errorf("expected rows_deleted=1000 (from successful batch before error), got %f", v)
 	}
 }
 
@@ -560,6 +570,84 @@ func TestCleanupConfig_InitialTurbo(t *testing.T) {
 	}
 	if v := cfg2.effectiveMaxBatches(1); v != 100 {
 		t.Errorf("cycle 1 (no turbo): expected 100, got %d", v)
+	}
+}
+
+func TestRunCleanupCycle_TransientErrorRetry(t *testing.T) {
+	resetMetrics()
+
+	m := &mockRepo{
+		results: []mockCleanerResult{
+			{deleted: 0, err: errors.New("connection reset")}, // attempt 1: fail
+			{deleted: 0, err: errors.New("connection reset")}, // attempt 2: fail
+			{deleted: 500, err: nil},                          // attempt 3: succeed
+		},
+	}
+	cfg := CleanupConfig{
+		Enabled:            true,
+		RetentionDays:      7,
+		BatchSize:          1000,
+		MaxBatchesPerCycle: 100,
+		RetryBackoff:       1 * time.Millisecond,
+	}
+
+	runCleanupCycle(context.Background(), m, cfg, "test-ns", cfg.MaxBatchesPerCycle, testLogger())
+
+	calls := m.getCalls()
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 calls (2 failures + 1 success), got %d", len(calls))
+	}
+
+	if v := getCounterValue(cleanupErrors); v != 2 {
+		t.Errorf("expected errors_total=2, got %f", v)
+	}
+
+	if v := getCounterValue(cleanupRowsDeleted); v != 500 {
+		t.Errorf("expected rows_deleted=500, got %f", v)
+	}
+
+	if v := getCounterValue(cleanupCyclesTotal); v != 1 {
+		t.Errorf("expected cycles_total=1, got %f", v)
+	}
+}
+
+func TestRunCleanupCycle_AllRetriesExhausted(t *testing.T) {
+	resetMetrics()
+
+	m := &mockRepo{
+		results: []mockCleanerResult{
+			{deleted: 0, err: errors.New("db down")}, // attempt 1
+			{deleted: 0, err: errors.New("db down")}, // attempt 2
+			{deleted: 0, err: errors.New("db down")}, // attempt 3
+		},
+	}
+	cfg := CleanupConfig{
+		Enabled:            true,
+		RetentionDays:      7,
+		BatchSize:          1000,
+		MaxBatchesPerCycle: 100,
+		RetryBackoff:       1 * time.Millisecond,
+	}
+
+	runCleanupCycle(context.Background(), m, cfg, "test-ns", cfg.MaxBatchesPerCycle, testLogger())
+
+	calls := m.getCalls()
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 calls (all retries exhausted), got %d", len(calls))
+	}
+
+	if v := getCounterValue(cleanupErrors); v != 3 {
+		t.Errorf("expected errors_total=3 (one per attempt), got %f", v)
+	}
+
+	// No rows should be counted as deleted
+	if v := getCounterValue(cleanupRowsDeleted); v != 0 {
+		t.Errorf("expected rows_deleted=0, got %f", v)
+	}
+
+	// Cycle should still be counted
+	if v := getCounterValue(cleanupCyclesTotal); v != 1 {
+		t.Errorf("expected cycles_total=1, got %f", v)
 	}
 }
 

@@ -228,6 +228,40 @@ func TestGDPRDeletionHandler_DBError(t *testing.T) {
 	mockRepo.AssertExpectations(t)
 }
 
+func TestGDPRDeletionHandler_RateLimit(t *testing.T) {
+	mockRepo := &MockGDPRGoalRepository{}
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "user-a").Return(int64(3), nil)
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "user-b").Return(int64(1), nil)
+
+	handler := NewGDPRDeletionHandler(mockRepo, "test-namespace", false, nil, testGDPRLogger())
+
+	// First call for user-a succeeds
+	req1 := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
+	req1.Header.Set("x-mock-user-id", "user-a")
+	rr1 := httptest.NewRecorder()
+	handler.ServeHTTP(rr1, req1)
+	assert.Equal(t, http.StatusOK, rr1.Code)
+
+	// Immediate second call for same user gets 429
+	req2 := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
+	req2.Header.Set("x-mock-user-id", "user-a")
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	assert.Equal(t, http.StatusTooManyRequests, rr2.Code)
+
+	var errResp map[string]string
+	err := json.Unmarshal(rr2.Body.Bytes(), &errResp)
+	assert.NoError(t, err)
+	assert.Equal(t, "RATE_LIMITED", errResp["errorCode"])
+
+	// Different user succeeds
+	req3 := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
+	req3.Header.Set("x-mock-user-id", "user-b")
+	rr3 := httptest.NewRecorder()
+	handler.ServeHTTP(rr3, req3)
+	assert.Equal(t, http.StatusOK, rr3.Code)
+}
+
 func TestGDPRDeletionHandler_DefaultTestUser(t *testing.T) {
 	mockRepo := &MockGDPRGoalRepository{}
 	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "test-user-id").Return(int64(0), nil)

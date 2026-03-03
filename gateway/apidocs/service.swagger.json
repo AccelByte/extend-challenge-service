@@ -346,6 +346,7 @@
       }
     },
     "/v1/users/me/data": {
+      "x-manual-entry": true,
       "delete": {
         "summary": "Delete user data (GDPR)",
         "description": "Delete all goal progress data for the authenticated user. Used for GDPR right-to-erasure compliance.",

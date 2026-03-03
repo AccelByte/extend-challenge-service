@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/loads"
 
 	"extend-challenge-service/pkg/cache"
+	"extend-challenge-service/pkg/cleanup"
 	"extend-challenge-service/pkg/client"
 	"extend-challenge-service/pkg/common"
 	"extend-challenge-service/pkg/handler"
@@ -333,6 +334,11 @@ func main() {
 		prometheusCollectors.NewProcessCollector(prometheusCollectors.ProcessCollectorOpts{}),
 		prometheusGrpc.DefaultServerMetrics,
 	)
+
+	// M6: Start expired row cleanup goroutine
+	cleanupCfg := cleanup.NewCleanupConfigFromEnv()
+	prometheusRegistry.MustRegister(cleanup.Collectors()...)
+	go cleanup.StartCleanupGoroutine(ctx, goalRepo, cleanupCfg, slogLogger)
 
 	go func() {
 		mux := http.NewServeMux()

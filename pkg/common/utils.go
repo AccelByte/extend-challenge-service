@@ -20,6 +20,22 @@ func GetEnv(key, fallback string) string {
 	return fallback
 }
 
+func GetEnvBool(key string, fallback bool) bool {
+	val, ok := os.LookupEnv(key)
+	if !ok || val == "" {
+		return fallback
+	}
+
+	switch strings.ToLower(val) {
+	case "true", "1", "yes":
+		return true
+	case "false", "0", "no":
+		return false
+	default:
+		return fallback
+	}
+}
+
 func GetEnvInt(key string, fallback int) int {
 	str := GetEnv(key, strconv.Itoa(fallback))
 	val, err := strconv.Atoi(str)

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"extend-challenge-service/pkg/cleanup"
 	"extend-challenge-service/pkg/common"
 	pb "extend-challenge-service/pkg/pb"
 	"extend-challenge-service/pkg/service"
@@ -1239,6 +1240,68 @@ func TestHealthCheck_Timeout(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, resp)
 	assert.Equal(t, codes.Unavailable, status.Code(err))
+}
+
+func TestHealthCheck_StaleCleanupStatus(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, dbMock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	// Expect ping to succeed
+	dbMock.ExpectPing()
+
+	// Create CleanupStatus with no heartbeat (stale)
+	cleanupSt := cleanup.NewCleanupStatus()
+	cleanupInterval := 60 * time.Minute
+
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", cleanupSt, cleanupInterval)
+
+	ctx := context.Background()
+	req := &pb.HealthCheckRequest{}
+
+	resp, err := server.HealthCheck(ctx, req)
+
+	// Should still return healthy (cleanup staleness is warning-only, not an error)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, "healthy", resp.Status)
+
+	assert.NoError(t, dbMock.ExpectationsWereMet())
+}
+
+func TestHealthCheck_HealthyCleanupStatus(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, dbMock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	// Expect ping to succeed
+	dbMock.ExpectPing()
+
+	// Create CleanupStatus with a recent heartbeat
+	cleanupSt := cleanup.NewCleanupStatus()
+	cleanupSt.RecordHeartbeat()
+	cleanupInterval := 60 * time.Minute
+
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", cleanupSt, cleanupInterval)
+
+	ctx := context.Background()
+	req := &pb.HealthCheckRequest{}
+
+	resp, err := server.HealthCheck(ctx, req)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, "healthy", resp.Status)
+
+	assert.NoError(t, dbMock.ExpectationsWereMet())
 }
 
 // ============================================================================

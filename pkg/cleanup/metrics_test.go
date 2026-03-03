@@ -6,10 +6,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-func TestCollectors_ReturnsExactly4(t *testing.T) {
+func TestCollectors_ReturnsExactly5(t *testing.T) {
 	collectors := Collectors()
-	if len(collectors) != 4 {
-		t.Errorf("expected 4 collectors, got %d", len(collectors))
+	if len(collectors) != 5 {
+		t.Errorf("expected 5 collectors, got %d", len(collectors))
 	}
 }
 
@@ -32,6 +32,7 @@ func TestCollectors_RegisterableWithPrometheus(t *testing.T) {
 		"challenge_cleanup_cycles_total":       false,
 		"challenge_cleanup_errors_total":       false,
 		"challenge_cleanup_duration_seconds":   false,
+		"challenge_cleanup_panics_total":       false,
 	}
 
 	for _, f := range families {

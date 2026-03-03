@@ -115,6 +115,10 @@ func resetMetrics() {
 		Help:    "Duration of each cleanup cycle in seconds.",
 		Buckets: prometheus.DefBuckets,
 	})
+	cleanupPanics = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "challenge_cleanup_panics_total",
+		Help: "Total number of panic-recovery restarts in the cleanup goroutine.",
+	})
 }
 
 func getCounterValue(c prometheus.Counter) float64 {
@@ -379,7 +383,8 @@ func TestRunCleanupCycle_MaxBatchesGuard(t *testing.T) {
 func TestStartCleanupGoroutine_PanicRecovery(t *testing.T) {
 	resetMetrics()
 
-	// Create a mock that panics on DeleteExpiredRows
+	// Create a mock that always panics on DeleteExpiredRows.
+	// With maxRestarts=3, it should attempt 4 times total (1 initial + 3 restarts) then exit.
 	m := &panicRepo{}
 	cfg := CleanupConfig{
 		Enabled:            true,
@@ -391,19 +396,122 @@ func TestStartCleanupGoroutine_PanicRecovery(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		// Should NOT crash — panic is recovered
+		// Should NOT crash — panics are recovered and restarts attempted
 		StartCleanupGoroutine(context.Background(), m, cfg, "test-ns", nil, testLogger())
 		close(done)
 	}()
 
 	select {
 	case <-done:
-		// Goroutine exited cleanly after panic recovery
-	case <-time.After(2 * time.Second):
-		t.Fatal("goroutine did not exit within 2 seconds after panic")
+		// Goroutine exited cleanly after exhausting restarts
+	case <-time.After(30 * time.Second):
+		t.Fatal("goroutine did not exit within 30 seconds after exhausting restarts")
 	}
 
-	// Verify error was counted
+	// Verify panics were counted (3 restarts)
+	if v := getCounterValue(cleanupPanics); v != float64(maxRestarts) {
+		t.Errorf("expected panics_total=%d, got %f", maxRestarts, v)
+	}
+
+	// Verify errors were counted (initial + 3 restarts = 4 errors from panic recovery)
+	if v := getCounterValue(cleanupErrors); v < float64(maxRestarts+1) {
+		t.Errorf("expected errors_total>=%d after all panics, got %f", maxRestarts+1, v)
+	}
+}
+
+func TestStartCleanupGoroutine_PanicThenRecover(t *testing.T) {
+	resetMetrics()
+
+	// Mock that panics on first call, then succeeds on subsequent calls.
+	m := &panicOnceRepo{}
+	cfg := CleanupConfig{
+		Enabled:            true,
+		Interval:           10 * time.Second, // Long interval — we only care about the restart
+		RetentionDays:      7,
+		BatchSize:          1000,
+		MaxBatchesPerCycle: 100,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		StartCleanupGoroutine(ctx, m, cfg, "test-ns", nil, testLogger())
+		close(done)
+	}()
+
+	// Wait for restart + second run, then cancel
+	time.Sleep(3 * time.Second)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("goroutine did not exit within 5 seconds after cancel")
+	}
+
+	// Should have panicked once and restarted
+	if v := getCounterValue(cleanupPanics); v != 1 {
+		t.Errorf("expected panics_total=1, got %f", v)
+	}
+
+	// After restart, the mock returns 0 rows (no panic), so goroutine continues normally
+	calls := m.getCalls()
+	if len(calls) < 1 {
+		t.Errorf("expected at least 1 successful call after restart, got %d", len(calls))
+	}
+}
+
+func TestRunCleanupLoop_NormalExit(t *testing.T) {
+	resetMetrics()
+
+	m := &mockRepo{}
+	cfg := CleanupConfig{
+		Enabled:            true,
+		Interval:           100 * time.Millisecond,
+		MaxBatchesPerCycle: 100,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan bool, 1)
+	go func() {
+		result := runCleanupLoop(ctx, m, cfg, "test-ns", nil, testLogger())
+		done <- result
+	}()
+
+	// Let it run briefly then cancel
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case result := <-done:
+		if !result {
+			t.Error("expected runCleanupLoop to return true (normal exit), got false")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runCleanupLoop did not exit within 2 seconds after cancel")
+	}
+}
+
+func TestRunCleanupLoop_PanicExit(t *testing.T) {
+	resetMetrics()
+
+	m := &panicRepo{}
+	cfg := CleanupConfig{
+		Enabled:            true,
+		Interval:           100 * time.Millisecond,
+		RetentionDays:      7,
+		BatchSize:          1000,
+		MaxBatchesPerCycle: 100,
+	}
+
+	result := runCleanupLoop(context.Background(), m, cfg, "test-ns", nil, testLogger())
+
+	if result {
+		t.Error("expected runCleanupLoop to return false (panic exit), got true")
+	}
+
 	if v := getCounterValue(cleanupErrors); v < 1 {
 		t.Errorf("expected errors_total>=1 after panic, got %f", v)
 	}
@@ -455,11 +563,30 @@ func TestCleanupConfig_InitialTurbo(t *testing.T) {
 	}
 }
 
-// panicRepo is a mock that panics on the first call to DeleteExpiredRows.
+// panicRepo is a mock that always panics on DeleteExpiredRows.
 type panicRepo struct {
 	mockRepo
 }
 
 func (m *panicRepo) DeleteExpiredRows(_ context.Context, _ string, _ time.Time, _ int) (int64, error) {
 	panic("test panic in cleanup")
+}
+
+// panicOnceRepo panics on the first call to DeleteExpiredRows, then delegates to mockRepo.
+type panicOnceRepo struct {
+	mockRepo
+	panicked sync.Once
+	didPanic bool
+}
+
+func (m *panicOnceRepo) DeleteExpiredRows(ctx context.Context, ns string, cutoff time.Time, batchSize int) (int64, error) {
+	shouldPanic := false
+	m.panicked.Do(func() {
+		shouldPanic = true
+		m.didPanic = true
+	})
+	if shouldPanic {
+		panic("test panic on first call")
+	}
+	return m.mockRepo.DeleteExpiredRows(ctx, ns, cutoff, batchSize)
 }

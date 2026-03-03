@@ -23,6 +23,11 @@ var (
 		Help:    "Duration of each cleanup cycle in seconds.",
 		Buckets: prometheus.DefBuckets,
 	})
+
+	cleanupPanics = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "challenge_cleanup_panics_total",
+		Help: "Total number of panic-recovery restarts in the cleanup goroutine.",
+	})
 )
 
 // Collectors returns all Prometheus collectors for cleanup metrics.
@@ -32,5 +37,6 @@ func Collectors() []prometheus.Collector {
 		cleanupCyclesTotal,
 		cleanupErrors,
 		cleanupDuration,
+		cleanupPanics,
 	}
 }

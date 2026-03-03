@@ -9,8 +9,10 @@ import (
 	"github.com/AccelByte/extend-challenge-common/pkg/repository"
 )
 
+const maxRestarts = 3
+
 // StartCleanupGoroutine launches a background goroutine that periodically deletes expired rows.
-// It runs one cleanup cycle immediately on startup, then enters the ticker loop.
+// If the inner loop panics, it restarts up to maxRestarts times with exponential backoff (1s, 2s, 4s).
 // It blocks until ctx is cancelled if enabled, or returns immediately if disabled.
 func StartCleanupGoroutine(ctx context.Context, repo repository.GoalRepository, cfg CleanupConfig, namespace string, status *CleanupStatus, logger *slog.Logger) {
 	if !cfg.Enabled {
@@ -18,11 +20,41 @@ func StartCleanupGoroutine(ctx context.Context, repo repository.GoalRepository, 
 		return
 	}
 
-	// D1: Panic recovery — log and increment error counter, then return.
+	for attempt := 0; attempt <= maxRestarts; attempt++ {
+		if attempt > 0 {
+			cleanupPanics.Inc()
+			backoff := time.Duration(1<<(attempt-1)) * time.Second
+			logger.Warn("restarting cleanup goroutine after panic",
+				"attempt", attempt,
+				"maxRestarts", maxRestarts,
+				"backoff", backoff,
+			)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				logger.Info("cleanup goroutine restart cancelled by context")
+				return
+			}
+		}
+
+		if runCleanupLoop(ctx, repo, cfg, namespace, status, logger) {
+			return // normal exit (context cancelled)
+		}
+	}
+
+	logger.Error("cleanup goroutine exhausted all restarts, giving up",
+		"maxRestarts", maxRestarts,
+	)
+}
+
+// runCleanupLoop runs the cleanup ticker loop. It returns true on normal exit (context cancelled)
+// and false if it recovered from a panic.
+func runCleanupLoop(ctx context.Context, repo repository.GoalRepository, cfg CleanupConfig, namespace string, status *CleanupStatus, logger *slog.Logger) (normalExit bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			cleanupErrors.Inc()
 			logger.Error("cleanup goroutine panicked", "panic", fmt.Sprintf("%v", r))
+			normalExit = false
 		}
 	}()
 
@@ -54,7 +86,7 @@ func StartCleanupGoroutine(ctx context.Context, repo repository.GoalRepository, 
 		select {
 		case <-ctx.Done():
 			logger.Info("cleanup goroutine stopping due to context cancellation")
-			return
+			return true
 		case <-ticker.C:
 			cycleCount++
 			runCleanupCycle(ctx, repo, cfg, namespace, cfg.effectiveMaxBatches(cycleCount), logger)
@@ -77,6 +109,14 @@ func runCleanupCycle(ctx context.Context, repo repository.GoalRepository, cfg Cl
 		cleanupCyclesTotal.Inc()
 		cleanupDuration.Observe(duration.Seconds())
 	}()
+
+	// D2: Reusable timer for inter-batch pauses (avoids timer garbage from time.After)
+	pauseDuration := time.Duration(cfg.BatchPauseMs) * time.Millisecond
+	pauseTimer := time.NewTimer(0)
+	if !pauseTimer.Stop() {
+		<-pauseTimer.C
+	}
+	defer pauseTimer.Stop()
 
 	var totalDeleted int64
 	batchCount := 0
@@ -108,10 +148,14 @@ func runCleanupCycle(ctx context.Context, repo repository.GoalRepository, cfg Cl
 			break
 		}
 
-		// D2: Configurable pause between batches to avoid I/O starvation
+		// Pause between batches to avoid I/O starvation
+		pauseTimer.Reset(pauseDuration)
 		select {
-		case <-time.After(time.Duration(cfg.BatchPauseMs) * time.Millisecond):
+		case <-pauseTimer.C:
 		case <-ctx.Done():
+			if !pauseTimer.Stop() {
+				<-pauseTimer.C
+			}
 			logger.Info("cleanup cycle interrupted by context cancellation")
 			return
 		}

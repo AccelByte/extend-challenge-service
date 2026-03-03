@@ -262,6 +262,10 @@ func main() {
 		logrus.Fatalf("Invalid REWARD_CLIENT_MODE: %s (must be 'mock' or 'real')", rewardMode)
 	}
 
+	// M6: Create cleanup config and status before server creation (server uses status for health check)
+	cleanupCfg := cleanup.NewCleanupConfigFromEnv()
+	cleanupStatus := cleanup.NewCleanupStatus()
+
 	// Create ChallengeServiceServer with all dependencies
 	challengeServiceServer := server.NewChallengeServiceServer(
 		goalCache,
@@ -269,6 +273,8 @@ func main() {
 		rewardClient,
 		db,
 		namespace,
+		cleanupStatus,
+		cleanupCfg.Interval,
 	)
 
 	// Register Challenge Service with gRPC server
@@ -346,9 +352,8 @@ func main() {
 	)
 
 	// M6: Start expired row cleanup goroutine
-	cleanupCfg := cleanup.NewCleanupConfigFromEnv()
 	prometheusRegistry.MustRegister(cleanup.Collectors()...)
-	go cleanup.StartCleanupGoroutine(ctx, goalRepo, cleanupCfg, slogLogger)
+	go cleanup.StartCleanupGoroutine(ctx, goalRepo, cleanupCfg, namespace, cleanupStatus, slogLogger)
 
 	go func() {
 		mux := http.NewServeMux()

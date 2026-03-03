@@ -41,7 +41,7 @@ func TestCleanupGoroutine_DeletesExpiredRows(t *testing.T) {
 		BatchSize:     1000,
 	}
 
-	go cleanup.StartCleanupGoroutine(t.Context(), goalRepo, cfg, logger)
+	go cleanup.StartCleanupGoroutine(t.Context(), goalRepo, cfg, "test-namespace", nil, logger)
 
 	// Poll until expired rows are deleted (timeout 5s)
 	require.Eventually(t, func() bool {
@@ -81,7 +81,7 @@ func TestCleanupGoroutine_RespectsRetentionDays(t *testing.T) {
 		BatchSize:     1000,
 	}
 
-	go cleanup.StartCleanupGoroutine(t.Context(), goalRepo, cfg, logger)
+	go cleanup.StartCleanupGoroutine(t.Context(), goalRepo, cfg, "test-namespace", nil, logger)
 
 	// Poll until the old row is deleted
 	require.Eventually(t, func() bool {
@@ -114,7 +114,7 @@ func TestCleanupGoroutine_DisabledDoesNothing(t *testing.T) {
 	}
 
 	// StartCleanupGoroutine should return immediately when disabled
-	cleanup.StartCleanupGoroutine(context.Background(), goalRepo, cfg, logger)
+	cleanup.StartCleanupGoroutine(context.Background(), goalRepo, cfg, "test-namespace", nil, logger)
 
 	// Wait a bit to make sure nothing happens
 	time.Sleep(300 * time.Millisecond)
@@ -145,7 +145,7 @@ func TestCleanupGoroutine_MultipleBatches(t *testing.T) {
 		BatchSize:     100,
 	}
 
-	go cleanup.StartCleanupGoroutine(t.Context(), goalRepo, cfg, logger)
+	go cleanup.StartCleanupGoroutine(t.Context(), goalRepo, cfg, "test-namespace", nil, logger)
 
 	// Poll until all 150 rows are deleted
 	require.Eventually(t, func() bool {
@@ -172,7 +172,7 @@ func TestDeleteUserData_Integration(t *testing.T) {
 	require.Equal(t, 2, countRowsForUser(t, testDB, "user-B"), "user-B should have 2 rows")
 
 	// Delete user-A data
-	deleted, err := goalRepo.DeleteUserData(context.Background(), "user-A")
+	deleted, err := goalRepo.DeleteUserData(context.Background(), "test-namespace", "user-A")
 	require.NoError(t, err)
 	require.Equal(t, int64(3), deleted, "should delete 3 rows for user-A")
 
@@ -185,7 +185,7 @@ func TestDeleteUserData_Integration(t *testing.T) {
 	require.True(t, goalExists(t, testDB, "user-B", "goal-2"), "user-B goal-2 should exist")
 
 	// Idempotency: delete user-A again
-	deleted, err = goalRepo.DeleteUserData(context.Background(), "user-A")
+	deleted, err = goalRepo.DeleteUserData(context.Background(), "test-namespace", "user-A")
 	require.NoError(t, err)
 	require.Equal(t, int64(0), deleted, "second delete should return 0")
 }

@@ -14,6 +14,18 @@ type CleanupConfig struct {
 	RetentionDays      int
 	BatchSize          int
 	MaxBatchesPerCycle int
+	BatchPauseMs       int // Pause between batches in milliseconds (default 50, min 10, max 5000)
+	InitialMaxBatches  int // Max batches per cycle during initial turbo mode (default 1000)
+	InitialCycles      int // Number of initial cycles to use turbo mode (default 3)
+}
+
+// effectiveMaxBatches returns the max batches limit for a given cycle number.
+// During the first InitialCycles cycles, it uses InitialMaxBatches for faster backlog clearing.
+func (c CleanupConfig) effectiveMaxBatches(cycleCount int) int {
+	if cycleCount <= c.InitialCycles && c.InitialMaxBatches > c.MaxBatchesPerCycle {
+		return c.InitialMaxBatches
+	}
+	return c.MaxBatchesPerCycle
 }
 
 // NewCleanupConfigFromEnv creates a CleanupConfig from environment variables.
@@ -45,11 +57,36 @@ func NewCleanupConfigFromEnv() CleanupConfig {
 		maxBatches = 1
 	}
 
+	batchPauseMs := common.GetEnvInt("CLEANUP_BATCH_PAUSE_MS", 50)
+	if batchPauseMs < 10 {
+		logger.Warn("CLEANUP_BATCH_PAUSE_MS clamped to minimum 10", "original", batchPauseMs)
+		batchPauseMs = 10
+	}
+	if batchPauseMs > 5000 {
+		logger.Warn("CLEANUP_BATCH_PAUSE_MS clamped to maximum 5000", "original", batchPauseMs)
+		batchPauseMs = 5000
+	}
+
+	initialMaxBatches := common.GetEnvInt("CLEANUP_INITIAL_MAX_BATCHES", 1000)
+	if initialMaxBatches < 1 {
+		logger.Warn("CLEANUP_INITIAL_MAX_BATCHES clamped to minimum 1", "original", initialMaxBatches)
+		initialMaxBatches = 1
+	}
+
+	initialCycles := common.GetEnvInt("CLEANUP_INITIAL_CYCLES", 3)
+	if initialCycles < 0 {
+		logger.Warn("CLEANUP_INITIAL_CYCLES clamped to minimum 0", "original", initialCycles)
+		initialCycles = 0
+	}
+
 	return CleanupConfig{
 		Enabled:            common.GetEnvBool("CLEANUP_ENABLED", true),
 		Interval:           time.Duration(interval) * time.Minute,
 		RetentionDays:      retentionDays,
 		BatchSize:          batchSize,
 		MaxBatchesPerCycle: maxBatches,
+		BatchPauseMs:       batchPauseMs,
+		InitialMaxBatches:  initialMaxBatches,
+		InitialCycles:      initialCycles,
 	}
 }

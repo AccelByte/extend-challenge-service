@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"extend-challenge-service/pkg/cleanup"
 	"extend-challenge-service/pkg/common"
 	"extend-challenge-service/pkg/mapper"
 	pb "extend-challenge-service/pkg/pb"
@@ -32,11 +33,13 @@ import (
 type ChallengeServiceServer struct {
 	pb.UnimplementedServiceServer
 
-	goalCache    cache.GoalCache
-	repo         repository.GoalRepository
-	rewardClient client.RewardClient
-	db           *sql.DB
-	namespace    string
+	goalCache       cache.GoalCache
+	repo            repository.GoalRepository
+	rewardClient    client.RewardClient
+	db              *sql.DB
+	namespace       string
+	cleanupStatus   *cleanup.CleanupStatus
+	cleanupInterval time.Duration
 }
 
 // NewChallengeServiceServer creates a new challenge service server
@@ -46,13 +49,17 @@ func NewChallengeServiceServer(
 	rewardClient client.RewardClient,
 	db *sql.DB,
 	namespace string,
+	cleanupStatus *cleanup.CleanupStatus,
+	cleanupInterval time.Duration,
 ) *ChallengeServiceServer {
 	return &ChallengeServiceServer{
-		goalCache:    goalCache,
-		repo:         repo,
-		rewardClient: rewardClient,
-		db:           db,
-		namespace:    namespace,
+		goalCache:       goalCache,
+		repo:            repo,
+		rewardClient:    rewardClient,
+		db:              db,
+		namespace:       namespace,
+		cleanupStatus:   cleanupStatus,
+		cleanupInterval: cleanupInterval,
 	}
 }
 
@@ -620,6 +627,13 @@ func (s *ChallengeServiceServer) HealthCheck(
 	if err := s.db.PingContext(healthCtx); err != nil {
 		logrus.WithError(err).Error("Database health check failed")
 		return nil, status.Error(codes.Unavailable, "database connectivity check failed")
+	}
+
+	// Check cleanup goroutine liveness (warning only — killing pods won't fix a goroutine crash)
+	if s.cleanupStatus != nil && s.cleanupInterval > 0 {
+		if !s.cleanupStatus.IsAlive(2 * s.cleanupInterval) {
+			logrus.Warn("Cleanup goroutine appears stale — no heartbeat within 2x cleanup interval")
+		}
 	}
 
 	return &pb.HealthCheckResponse{

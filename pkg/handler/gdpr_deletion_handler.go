@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/AccelByte/accelbyte-go-sdk/services-api/pkg/utils/auth/validator"
 	commonRepo "github.com/AccelByte/extend-challenge-common/pkg/repository"
@@ -56,14 +57,28 @@ func (h *GDPRDeletionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	deleted, err := h.repo.DeleteUserData(r.Context(), userID)
+	deleted, err := h.repo.DeleteUserData(r.Context(), h.namespace, userID)
 	if err != nil {
-		h.logger.Error("GDPR deletion failed", "userId", userID, "error", err)
+		h.logger.Error("GDPR deletion failed",
+			"userId", userID,
+			"error", err,
+			"audit", true,
+			"auditAction", "gdpr_user_data_deletion_failed",
+			"namespace", h.namespace,
+			"requestedAt", time.Now().UTC().Format(time.RFC3339),
+		)
 		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
 		return
 	}
 
-	h.logger.Info("GDPR deletion completed", "userId", userID, "rowsDeleted", deleted)
+	h.logger.Info("GDPR deletion completed",
+		"userId", userID,
+		"rowsDeleted", deleted,
+		"audit", true,
+		"auditAction", "gdpr_user_data_deletion",
+		"namespace", h.namespace,
+		"requestedAt", time.Now().UTC().Format(time.RFC3339),
+	)
 
 	resp := GDPRDeletionResponse{
 		UserID:      userID,

@@ -44,7 +44,7 @@ func TestCleanupGoroutine_ConcurrentWithAPI(t *testing.T) {
 		BatchSize:     1000,
 	}
 
-	go cleanup.StartCleanupGoroutine(t.Context(), goalRepo, cfg, logger)
+	go cleanup.StartCleanupGoroutine(t.Context(), goalRepo, cfg, "test-namespace", nil, logger)
 
 	// Make API requests while cleanup is running
 	for i := range 5 {

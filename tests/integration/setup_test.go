@@ -205,6 +205,8 @@ func setupTestServer(t *testing.T) (pb.ServiceClient, *commonClient.MockRewardCl
 		mockRewardClient,
 		testDB,
 		"test-namespace",
+		nil,
+		0,
 	)
 
 	// 5. Create in-process gRPC server with test auth interceptor
@@ -287,6 +289,8 @@ func setupHTTPTestServer(t *testing.T) (http.Handler, *commonClient.MockRewardCl
 		mockRewardClient,
 		testDB,
 		"test-namespace",
+		nil,
+		0,
 	)
 
 	// 5. Create grpc-gateway mux
@@ -441,13 +445,13 @@ func (m *MockGoalRepository) GetActiveGoals(ctx context.Context, userID string) 
 	return args.Get(0).([]*commonDomain.UserGoalProgress), args.Error(1)
 }
 
-func (m *MockGoalRepository) DeleteExpiredRows(ctx context.Context, cutoff time.Time, batchSize int) (int64, error) {
-	args := m.Called(ctx, cutoff, batchSize)
+func (m *MockGoalRepository) DeleteExpiredRows(ctx context.Context, namespace string, cutoff time.Time, batchSize int) (int64, error) {
+	args := m.Called(ctx, namespace, cutoff, batchSize)
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockGoalRepository) DeleteUserData(ctx context.Context, userID string) (int64, error) {
-	args := m.Called(ctx, userID)
+func (m *MockGoalRepository) DeleteUserData(ctx context.Context, namespace string, userID string) (int64, error) {
+	args := m.Called(ctx, namespace, userID)
 	return args.Get(0).(int64), args.Error(1)
 }
 
@@ -481,6 +485,8 @@ func setupTestServerWithMockDB(t *testing.T) (pb.ServiceClient, *commonClient.Mo
 		mockRewardClient,
 		nil, // no real DB needed
 		"test-namespace",
+		nil,
+		0,
 	)
 
 	// Create in-process gRPC server with test auth interceptor

@@ -114,13 +114,13 @@ func (m *MockGDPRGoalRepository) GetActiveGoals(ctx context.Context, userID stri
 	return args.Get(0).([]*commonDomain.UserGoalProgress), args.Error(1)
 }
 
-func (m *MockGDPRGoalRepository) DeleteExpiredRows(ctx context.Context, cutoff time.Time, batchSize int) (int64, error) {
-	args := m.Called(ctx, cutoff, batchSize)
+func (m *MockGDPRGoalRepository) DeleteExpiredRows(ctx context.Context, namespace string, cutoff time.Time, batchSize int) (int64, error) {
+	args := m.Called(ctx, namespace, cutoff, batchSize)
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockGDPRGoalRepository) DeleteUserData(ctx context.Context, userID string) (int64, error) {
-	args := m.Called(ctx, userID)
+func (m *MockGDPRGoalRepository) DeleteUserData(ctx context.Context, namespace string, userID string) (int64, error) {
+	args := m.Called(ctx, namespace, userID)
 	return args.Get(0).(int64), args.Error(1)
 }
 
@@ -130,7 +130,7 @@ func testGDPRLogger() *slog.Logger {
 
 func TestGDPRDeletionHandler_Success(t *testing.T) {
 	mockRepo := &MockGDPRGoalRepository{}
-	mockRepo.On("DeleteUserData", mock.Anything, "test-user-id").Return(int64(5), nil)
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "test-user-id").Return(int64(5), nil)
 
 	handler := NewGDPRDeletionHandler(mockRepo, "test-namespace", false, nil, testGDPRLogger())
 
@@ -148,7 +148,7 @@ func TestGDPRDeletionHandler_Success(t *testing.T) {
 
 func TestGDPRDeletionHandler_SuccessNoRows(t *testing.T) {
 	mockRepo := &MockGDPRGoalRepository{}
-	mockRepo.On("DeleteUserData", mock.Anything, "new-user").Return(int64(0), nil)
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "new-user").Return(int64(0), nil)
 
 	handler := NewGDPRDeletionHandler(mockRepo, "test-namespace", false, nil, testGDPRLogger())
 
@@ -192,7 +192,7 @@ func TestGDPRDeletionHandler_AuthEnabled_NoHeader(t *testing.T) {
 
 func TestGDPRDeletionHandler_DBError(t *testing.T) {
 	mockRepo := &MockGDPRGoalRepository{}
-	mockRepo.On("DeleteUserData", mock.Anything, "test-user-id").Return(int64(0), errors.New("db error"))
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "test-user-id").Return(int64(0), errors.New("db error"))
 
 	handler := NewGDPRDeletionHandler(mockRepo, "test-namespace", false, nil, testGDPRLogger())
 
@@ -208,7 +208,7 @@ func TestGDPRDeletionHandler_DBError(t *testing.T) {
 
 func TestGDPRDeletionHandler_DefaultTestUser(t *testing.T) {
 	mockRepo := &MockGDPRGoalRepository{}
-	mockRepo.On("DeleteUserData", mock.Anything, "test-user-id").Return(int64(0), nil)
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "test-user-id").Return(int64(0), nil)
 
 	handler := NewGDPRDeletionHandler(mockRepo, "test-namespace", false, nil, testGDPRLogger())
 

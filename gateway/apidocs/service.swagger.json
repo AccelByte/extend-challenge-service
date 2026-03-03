@@ -8,6 +8,10 @@
   "tags": [
     {
       "name": "Service"
+    },
+    {
+      "name": "GDPR",
+      "description": "GDPR compliance endpoints for user data management"
     }
   ],
   "basePath": "/challenge",
@@ -341,6 +345,41 @@
         ]
       }
     },
+    "/v1/users/me/data": {
+      "delete": {
+        "summary": "Delete user data (GDPR)",
+        "description": "Delete all goal progress data for the authenticated user. Used for GDPR right-to-erasure compliance.",
+        "operationId": "GDPR_DeleteUserData",
+        "responses": {
+          "200": {
+            "description": "User data deleted successfully.",
+            "schema": {
+              "$ref": "#/definitions/serviceGDPRDeletionResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized - missing or invalid bearer token.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          },
+          "500": {
+            "description": "Internal server error.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "GDPR"
+        ],
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
     "/v1/challenges/{challengeId}/rotation": {
       "get": {
         "summary": "Get rotation status",
@@ -487,6 +526,20 @@
         },
         "claimedAt": {
           "type": "string"
+        }
+      }
+    },
+    "serviceGDPRDeletionResponse": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The user ID whose data was deleted"
+        },
+        "rowsDeleted": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Number of goal progress rows deleted"
         }
       }
     },

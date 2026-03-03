@@ -36,7 +36,7 @@ type mockCleanerResult struct {
 	err     error
 }
 
-func (m *mockRepo) DeleteExpiredRows(_ context.Context, cutoff time.Time, batchSize int) (int64, error) {
+func (m *mockRepo) DeleteExpiredRows(_ context.Context, _ string, cutoff time.Time, batchSize int) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -94,7 +94,7 @@ func (m *mockRepo) GetUserGoalCount(_ context.Context, _ string) (int, error) { 
 func (m *mockRepo) GetActiveGoals(_ context.Context, _ string) ([]*domain.UserGoalProgress, error) {
 	return nil, nil
 }
-func (m *mockRepo) DeleteUserData(_ context.Context, _ string) (int64, error) { return 0, nil }
+func (m *mockRepo) DeleteUserData(_ context.Context, _, _ string) (int64, error) { return 0, nil }
 
 // resetMetrics creates fresh metric instances for test isolation.
 func resetMetrics() {
@@ -132,7 +132,7 @@ func TestStartCleanupGoroutine_Disabled(t *testing.T) {
 	cfg := CleanupConfig{Enabled: false}
 
 	// Should return immediately without calling repo
-	StartCleanupGoroutine(context.Background(), m, cfg, testLogger())
+	StartCleanupGoroutine(context.Background(), m, cfg, "test-ns", nil, testLogger())
 
 	calls := m.getCalls()
 	if len(calls) != 0 {
@@ -155,7 +155,7 @@ func TestRunCleanupCycle_HappyPath(t *testing.T) {
 		MaxBatchesPerCycle: 100,
 	}
 
-	runCleanupCycle(context.Background(), m, cfg, testLogger())
+	runCleanupCycle(context.Background(), m, cfg, "test-ns", cfg.MaxBatchesPerCycle, testLogger())
 
 	calls := m.getCalls()
 	if len(calls) != 1 {
@@ -192,7 +192,7 @@ func TestRunCleanupCycle_MultipleBatches(t *testing.T) {
 		MaxBatchesPerCycle: 100,
 	}
 
-	runCleanupCycle(context.Background(), m, cfg, testLogger())
+	runCleanupCycle(context.Background(), m, cfg, "test-ns", cfg.MaxBatchesPerCycle, testLogger())
 
 	calls := m.getCalls()
 	if len(calls) != 3 {
@@ -220,7 +220,7 @@ func TestRunCleanupCycle_Error(t *testing.T) {
 		MaxBatchesPerCycle: 100,
 	}
 
-	runCleanupCycle(context.Background(), m, cfg, testLogger())
+	runCleanupCycle(context.Background(), m, cfg, "test-ns", cfg.MaxBatchesPerCycle, testLogger())
 
 	calls := m.getCalls()
 	if len(calls) != 2 {
@@ -231,9 +231,9 @@ func TestRunCleanupCycle_Error(t *testing.T) {
 		t.Errorf("expected errors_total=1, got %f", v)
 	}
 
-	// cycles_total should NOT be incremented on error
-	if v := getCounterValue(cleanupCyclesTotal); v != 0 {
-		t.Errorf("expected cycles_total=0 on error, got %f", v)
+	// D4: cycles_total is always incremented (via defer), even on error
+	if v := getCounterValue(cleanupCyclesTotal); v != 1 {
+		t.Errorf("expected cycles_total=1 on error (deferred), got %f", v)
 	}
 }
 
@@ -253,7 +253,7 @@ func TestRunCleanupCycle_CorrectCutoff(t *testing.T) {
 	}
 
 	before := time.Now().UTC().Add(-7 * 24 * time.Hour)
-	runCleanupCycle(context.Background(), m, cfg, testLogger())
+	runCleanupCycle(context.Background(), m, cfg, "test-ns", cfg.MaxBatchesPerCycle, testLogger())
 	after := time.Now().UTC().Add(-7 * 24 * time.Hour)
 
 	calls := m.getCalls()
@@ -282,7 +282,7 @@ func TestStartCleanupGoroutine_ContextCancel(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		StartCleanupGoroutine(ctx, m, cfg, testLogger())
+		StartCleanupGoroutine(ctx, m, cfg, "test-ns", nil, testLogger())
 		close(done)
 	}()
 
@@ -318,7 +318,7 @@ func TestStartCleanupGoroutine_ImmediateExecution(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		StartCleanupGoroutine(ctx, m, cfg, testLogger())
+		StartCleanupGoroutine(ctx, m, cfg, "test-ns", nil, testLogger())
 		close(done)
 	}()
 
@@ -359,7 +359,7 @@ func TestRunCleanupCycle_MaxBatchesGuard(t *testing.T) {
 		MaxBatchesPerCycle: 3, // Limit to 3 batches
 	}
 
-	runCleanupCycle(context.Background(), m, cfg, testLogger())
+	runCleanupCycle(context.Background(), m, cfg, "test-ns", cfg.MaxBatchesPerCycle, testLogger())
 
 	calls := m.getCalls()
 	if len(calls) != 3 {
@@ -374,4 +374,92 @@ func TestRunCleanupCycle_MaxBatchesGuard(t *testing.T) {
 	if v := getCounterValue(cleanupCyclesTotal); v != 1 {
 		t.Errorf("expected cycles_total=1, got %f", v)
 	}
+}
+
+func TestStartCleanupGoroutine_PanicRecovery(t *testing.T) {
+	resetMetrics()
+
+	// Create a mock that panics on DeleteExpiredRows
+	m := &panicRepo{}
+	cfg := CleanupConfig{
+		Enabled:            true,
+		Interval:           100 * time.Millisecond,
+		RetentionDays:      7,
+		BatchSize:          1000,
+		MaxBatchesPerCycle: 100,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		// Should NOT crash — panic is recovered
+		StartCleanupGoroutine(context.Background(), m, cfg, "test-ns", nil, testLogger())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Goroutine exited cleanly after panic recovery
+	case <-time.After(2 * time.Second):
+		t.Fatal("goroutine did not exit within 2 seconds after panic")
+	}
+
+	// Verify error was counted
+	if v := getCounterValue(cleanupErrors); v < 1 {
+		t.Errorf("expected errors_total>=1 after panic, got %f", v)
+	}
+}
+
+func TestCleanupConfig_BatchPauseMs(t *testing.T) {
+	cfg := CleanupConfig{BatchPauseMs: 50}
+	if cfg.BatchPauseMs != 50 {
+		t.Errorf("expected BatchPauseMs=50, got %d", cfg.BatchPauseMs)
+	}
+
+	// Verify env parsing with clamping
+	t.Setenv("CLEANUP_BATCH_PAUSE_MS", "5")
+	t.Setenv("CLEANUP_ENABLED", "true")
+	envCfg := NewCleanupConfigFromEnv()
+	if envCfg.BatchPauseMs != 10 {
+		t.Errorf("expected BatchPauseMs clamped to 10, got %d", envCfg.BatchPauseMs)
+	}
+}
+
+func TestCleanupConfig_InitialTurbo(t *testing.T) {
+	cfg := CleanupConfig{
+		MaxBatchesPerCycle: 100,
+		InitialMaxBatches:  1000,
+		InitialCycles:      3,
+	}
+
+	// Cycle 1-3 should use turbo
+	if v := cfg.effectiveMaxBatches(1); v != 1000 {
+		t.Errorf("cycle 1: expected 1000 (turbo), got %d", v)
+	}
+	if v := cfg.effectiveMaxBatches(3); v != 1000 {
+		t.Errorf("cycle 3: expected 1000 (turbo), got %d", v)
+	}
+
+	// Cycle 4+ should use normal
+	if v := cfg.effectiveMaxBatches(4); v != 100 {
+		t.Errorf("cycle 4: expected 100 (normal), got %d", v)
+	}
+
+	// When InitialMaxBatches <= MaxBatchesPerCycle, always use normal
+	cfg2 := CleanupConfig{
+		MaxBatchesPerCycle: 100,
+		InitialMaxBatches:  50,
+		InitialCycles:      3,
+	}
+	if v := cfg2.effectiveMaxBatches(1); v != 100 {
+		t.Errorf("cycle 1 (no turbo): expected 100, got %d", v)
+	}
+}
+
+// panicRepo is a mock that panics on the first call to DeleteExpiredRows.
+type panicRepo struct {
+	mockRepo
+}
+
+func (m *panicRepo) DeleteExpiredRows(_ context.Context, _ string, _ time.Time, _ int) (int64, error) {
+	panic("test panic in cleanup")
 }

@@ -16,6 +16,20 @@ type GDPRDeletionResponse struct {
 	RowsDeleted int64  `json:"rowsDeleted"`
 }
 
+// gdprErrorResponse matches the standard API error format (errorCode + message).
+type gdprErrorResponse struct {
+	ErrorCode string `json:"errorCode"`
+	Message   string `json:"message"`
+}
+
+// writeJSONError writes a JSON error response with the standard errorCode/message format.
+func writeJSONError(w http.ResponseWriter, statusCode int, errorCode, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	resp, _ := json.Marshal(gdprErrorResponse{ErrorCode: errorCode, Message: message})
+	_, _ = w.Write(resp)
+}
+
 // GDPRDeletionHandler handles DELETE /v1/users/me/data for GDPR compliance.
 // It deletes all goal progress data for the authenticated user.
 type GDPRDeletionHandler struct {
@@ -46,14 +60,14 @@ func NewGDPRDeletionHandler(
 // ServeHTTP handles the GDPR deletion request.
 func (h *GDPRDeletionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Only DELETE method is allowed")
 		return
 	}
 
 	userID, err := h.extractUserID(r)
 	if err != nil {
 		h.logger.Warn("GDPR deletion auth failure", "error", err)
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing or invalid authentication token")
 		return
 	}
 
@@ -67,7 +81,7 @@ func (h *GDPRDeletionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			"namespace", h.namespace,
 			"requestedAt", time.Now().UTC().Format(time.RFC3339),
 		)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete user data")
 		return
 	}
 
@@ -88,7 +102,7 @@ func (h *GDPRDeletionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	respJSON, err := json.Marshal(resp)
 	if err != nil {
 		h.logger.Error("GDPR deletion response marshal failed", "error", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to process response")
 		return
 	}
 

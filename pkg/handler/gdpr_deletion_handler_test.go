@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -175,6 +176,13 @@ func TestGDPRDeletionHandler_MethodNotAllowed(t *testing.T) {
 		handler.ServeHTTP(rr, req)
 
 		assert.Equal(t, http.StatusMethodNotAllowed, rr.Code, "method %s should be rejected", method)
+		assert.Equal(t, "application/json", rr.Header().Get("Content-Type"), "method %s should return JSON", method)
+
+		var errResp map[string]string
+		err := json.Unmarshal(rr.Body.Bytes(), &errResp)
+		assert.NoError(t, err, "method %s response should be valid JSON", method)
+		assert.Equal(t, "METHOD_NOT_ALLOWED", errResp["errorCode"], "method %s should have errorCode", method)
+		assert.NotEmpty(t, errResp["message"], "method %s should have message", method)
 	}
 }
 
@@ -188,6 +196,13 @@ func TestGDPRDeletionHandler_AuthEnabled_NoHeader(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+
+	var errResp map[string]string
+	err := json.Unmarshal(rr.Body.Bytes(), &errResp)
+	assert.NoError(t, err, "response should be valid JSON")
+	assert.Equal(t, "UNAUTHORIZED", errResp["errorCode"])
+	assert.NotEmpty(t, errResp["message"])
 }
 
 func TestGDPRDeletionHandler_DBError(t *testing.T) {
@@ -203,6 +218,13 @@ func TestGDPRDeletionHandler_DBError(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+
+	var errResp map[string]string
+	err := json.Unmarshal(rr.Body.Bytes(), &errResp)
+	assert.NoError(t, err, "response should be valid JSON")
+	assert.Equal(t, "INTERNAL_ERROR", errResp["errorCode"])
+	assert.NotEmpty(t, errResp["message"])
 	mockRepo.AssertExpectations(t)
 }
 

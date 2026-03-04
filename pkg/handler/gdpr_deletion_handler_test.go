@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AccelByte/accelbyte-go-sdk/services-api/pkg/service/iam"
 	commonDomain "github.com/AccelByte/extend-challenge-common/pkg/domain"
 	commonRepo "github.com/AccelByte/extend-challenge-common/pkg/repository"
 	"github.com/stretchr/testify/assert"
@@ -262,6 +264,35 @@ func TestGDPRDeletionHandler_RateLimit(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr3.Code)
 }
 
+func TestGDPRDeletionHandler_RateLimitNotConsumedOnDBError(t *testing.T) {
+	mockRepo := &MockGDPRGoalRepository{}
+	// First call: DB error
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "user-retry").
+		Return(int64(0), errors.New("db error")).Once()
+	// Second call: success
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "user-retry").
+		Return(int64(2), nil).Once()
+
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", false, nil, testGDPRLogger())
+
+	// First request fails with 500
+	req1 := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
+	req1.Header.Set("x-mock-user-id", "user-retry")
+	rr1 := httptest.NewRecorder()
+	handler.ServeHTTP(rr1, req1)
+	assert.Equal(t, http.StatusInternalServerError, rr1.Code)
+
+	// Second request immediately should succeed (not 429) because rate limit wasn't consumed on failure
+	req2 := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
+	req2.Header.Set("x-mock-user-id", "user-retry")
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	assert.Equal(t, http.StatusOK, rr2.Code)
+	assert.Contains(t, rr2.Body.String(), `"rowsDeleted":2`)
+
+	mockRepo.AssertExpectations(t)
+}
+
 func TestGDPRDeletionHandler_DefaultTestUser(t *testing.T) {
 	mockRepo := &MockGDPRGoalRepository{}
 	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "test-user-id").Return(int64(0), nil)
@@ -290,4 +321,159 @@ func TestGDPRDeletionHandler_EvictionContextCancel(t *testing.T) {
 	cancel()
 	// Give goroutine time to exit
 	time.Sleep(50 * time.Millisecond)
+}
+
+// MockGDPRTokenValidator is a mock for AuthTokenValidator in GDPR handler tests.
+type MockGDPRTokenValidator struct {
+	mock.Mock
+}
+
+func (m *MockGDPRTokenValidator) Initialize(ctx ...context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *MockGDPRTokenValidator) Validate(token string, permission *iam.Permission, namespace *string, userId *string) error {
+	args := m.Called(token, permission, namespace, userId)
+	return args.Error(0)
+}
+
+func TestGDPRDeletionHandler_AuthEnabled_InvalidBearerFormat(t *testing.T) {
+	mockRepo := &MockGDPRGoalRepository{}
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", true, nil, testGDPRLogger())
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
+	req.Header.Set("Authorization", "Basic abc")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	var errResp map[string]string
+	err := json.Unmarshal(rr.Body.Bytes(), &errResp)
+	assert.NoError(t, err)
+	assert.Equal(t, "UNAUTHORIZED", errResp["errorCode"])
+}
+
+func TestGDPRDeletionHandler_AuthEnabled_NilTokenValidator(t *testing.T) {
+	mockRepo := &MockGDPRGoalRepository{}
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", true, nil, testGDPRLogger())
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
+	req.Header.Set("Authorization", "Bearer sometoken")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	var errResp map[string]string
+	err := json.Unmarshal(rr.Body.Bytes(), &errResp)
+	assert.NoError(t, err)
+	assert.Equal(t, "UNAUTHORIZED", errResp["errorCode"])
+}
+
+func TestGDPRDeletionHandler_AuthEnabled_TokenValidationFails(t *testing.T) {
+	mockRepo := &MockGDPRGoalRepository{}
+	mockValidator := new(MockGDPRTokenValidator)
+	mockValidator.On("Validate", "badtoken", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("token expired"))
+
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", true, mockValidator, testGDPRLogger())
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
+	req.Header.Set("Authorization", "Bearer badtoken")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	var errResp map[string]string
+	err := json.Unmarshal(rr.Body.Bytes(), &errResp)
+	assert.NoError(t, err)
+	assert.Equal(t, "UNAUTHORIZED", errResp["errorCode"])
+	mockValidator.AssertExpectations(t)
+}
+
+func TestGDPRDeletionHandler_AuthEnabled_InvalidJWTPayload(t *testing.T) {
+	mockRepo := &MockGDPRGoalRepository{}
+	mockValidator := new(MockGDPRTokenValidator)
+
+	// Token with invalid base64 payload — validator passes but JWT decode fails
+	invalidToken := "header.!!!notbase64!!!.signature"
+	mockValidator.On("Validate", invalidToken, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", true, mockValidator, testGDPRLogger())
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
+	req.Header.Set("Authorization", "Bearer "+invalidToken)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	var errResp map[string]string
+	err := json.Unmarshal(rr.Body.Bytes(), &errResp)
+	assert.NoError(t, err)
+	assert.Equal(t, "UNAUTHORIZED", errResp["errorCode"])
+	mockValidator.AssertExpectations(t)
+}
+
+func TestGDPRDeletionHandler_SuccessContentType(t *testing.T) {
+	mockRepo := &MockGDPRGoalRepository{}
+	mockValidator := new(MockGDPRTokenValidator)
+
+	// Build a valid JWT token with sub claim
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"user-ct","namespace":"test-namespace","exp":9999999999}`))
+	token := "header." + payload + ".signature"
+	mockValidator.On("Validate", token, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "user-ct").Return(int64(2), nil)
+
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", true, mockValidator, testGDPRLogger())
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+	assert.Contains(t, rr.Body.String(), `"userId":"user-ct"`)
+	assert.Contains(t, rr.Body.String(), `"rowsDeleted":2`)
+	mockRepo.AssertExpectations(t)
+	mockValidator.AssertExpectations(t)
+}
+
+func TestGDPRDeletionHandler_EvictionRemovesStaleEntries(t *testing.T) {
+	mockRepo := &MockGDPRGoalRepository{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	handler := &GDPRDeletionHandler{
+		repo:      mockRepo,
+		namespace: "test-namespace",
+		logger:    testGDPRLogger(),
+	}
+
+	// Store entries: one stale (3 minutes ago), one fresh (now)
+	handler.rateLimiter.Store("stale-user", time.Now().Add(-3*time.Minute))
+	handler.rateLimiter.Store("fresh-user", time.Now())
+
+	// Manually call eviction logic (same as what the ticker triggers)
+	now := time.Now()
+	handler.rateLimiter.Range(func(key, value any) bool {
+		if lastTime, ok := value.(time.Time); ok && now.Sub(lastTime) > 2*time.Minute {
+			handler.rateLimiter.Delete(key)
+		}
+		return true
+	})
+
+	// Stale entry should be removed
+	_, staleExists := handler.rateLimiter.Load("stale-user")
+	assert.False(t, staleExists, "stale entry should have been evicted")
+
+	// Fresh entry should remain
+	_, freshExists := handler.rateLimiter.Load("fresh-user")
+	assert.True(t, freshExists, "fresh entry should remain")
+
+	_ = ctx
 }

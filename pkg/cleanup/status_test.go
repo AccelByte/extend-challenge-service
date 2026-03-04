@@ -5,10 +5,19 @@ import (
 	"time"
 )
 
-func TestCleanupStatus_NewIsNotAlive(t *testing.T) {
+func TestCleanupStatus_NewIsAliveWithinGrace(t *testing.T) {
 	s := NewCleanupStatus()
+	// A freshly created status should be alive within the startup grace period (2 * threshold)
+	if !s.IsAlive(time.Hour) {
+		t.Error("new status should be alive within startup grace period")
+	}
+}
+
+func TestCleanupStatus_NewIsNotAliveAfterGrace(t *testing.T) {
+	// Simulate old creation time (startup grace expired)
+	s := NewCleanupStatusWithCreatedAt(time.Now().Add(-24 * time.Hour))
 	if s.IsAlive(time.Hour) {
-		t.Error("new status should not be alive (no heartbeat recorded)")
+		t.Error("status with expired startup grace and no heartbeat should not be alive")
 	}
 }
 
@@ -65,5 +74,42 @@ func TestCleanupStatus_MultipleHeartbeats(t *testing.T) {
 
 	if !s.IsAlive(time.Second) {
 		t.Error("should be alive after multiple heartbeats")
+	}
+}
+
+func TestCleanupStatus_IsAlive_GraceBoundary(t *testing.T) {
+	threshold := 100 * time.Millisecond
+	grace := 2 * threshold // 200ms
+
+	// Just inside grace boundary: created at now - (grace - 10ms) → should be alive
+	insideGrace := NewCleanupStatusWithCreatedAt(time.Now().Add(-(grace - 10*time.Millisecond)))
+	if !insideGrace.IsAlive(threshold) {
+		t.Error("should be alive just inside 2*threshold boundary")
+	}
+
+	// Just outside grace boundary: created at now - (grace + 50ms) → should NOT be alive
+	outsideGrace := NewCleanupStatusWithCreatedAt(time.Now().Add(-(grace + 50*time.Millisecond)))
+	if outsideGrace.IsAlive(threshold) {
+		t.Error("should not be alive just outside 2*threshold boundary")
+	}
+}
+
+func TestCleanupStatus_StartupGracePeriod(t *testing.T) {
+	// With a 1-second threshold, startup grace is 2 seconds
+	s := NewCleanupStatus()
+	if !s.IsAlive(time.Second) {
+		t.Error("should be alive within startup grace period (2 * 1s = 2s)")
+	}
+
+	// Simulate old creation: grace expired
+	old := NewCleanupStatusWithCreatedAt(time.Now().Add(-5 * time.Second))
+	if old.IsAlive(time.Second) {
+		t.Error("should not be alive after startup grace expires")
+	}
+
+	// After recording heartbeat on old status, it should be alive
+	old.RecordHeartbeat()
+	if !old.IsAlive(time.Second) {
+		t.Error("should be alive after heartbeat even with old creation time")
 	}
 }

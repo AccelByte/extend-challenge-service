@@ -109,8 +109,6 @@ func (h *GDPRDeletionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	h.rateLimiter.Store(userID, now)
-
 	deleted, err := h.repo.DeleteUserData(r.Context(), h.namespace, userID)
 	if err != nil {
 		h.logger.Error("GDPR deletion failed",
@@ -124,6 +122,10 @@ func (h *GDPRDeletionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete user data")
 		return
 	}
+
+	// Only consume rate limit after successful deletion — if deletion failed,
+	// the user should be able to retry immediately without waiting 1 minute.
+	h.rateLimiter.Store(userID, now)
 
 	h.logger.Info("GDPR deletion completed",
 		"userId", userID,

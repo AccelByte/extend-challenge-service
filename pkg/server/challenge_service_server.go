@@ -666,10 +666,11 @@ func (s *ChallengeServiceServer) HealthCheck(
 		return nil, status.Error(codes.Unavailable, "database connectivity check failed")
 	}
 
-	// Check cleanup goroutine liveness (warning only — killing pods won't fix a goroutine crash)
+	// Check cleanup goroutine liveness — report unhealthy if stale
 	if s.cleanupStatus != nil && s.cleanupInterval > 0 {
 		if !s.cleanupStatus.IsAlive(2 * s.cleanupInterval) {
-			logrus.Warn("Cleanup goroutine appears stale — no heartbeat within 2x cleanup interval")
+			logrus.Error("Cleanup goroutine stale — no heartbeat within 2x cleanup interval, reporting unhealthy")
+			return nil, status.Error(codes.Unavailable, "cleanup goroutine stale: no heartbeat within threshold")
 		}
 	}
 

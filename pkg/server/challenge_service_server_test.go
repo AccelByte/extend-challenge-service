@@ -1254,7 +1254,38 @@ func TestHealthCheck_StaleCleanupStatus(t *testing.T) {
 	// Expect ping to succeed
 	dbMock.ExpectPing()
 
-	// Create CleanupStatus with no heartbeat (stale)
+	// Create CleanupStatus with old creation time so startup grace is expired
+	cleanupSt := cleanup.NewCleanupStatusWithCreatedAt(time.Now().Add(-24 * time.Hour))
+	cleanupInterval := 60 * time.Minute
+
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", cleanupSt, cleanupInterval)
+
+	ctx := context.Background()
+	req := &pb.HealthCheckRequest{}
+
+	resp, err := server.HealthCheck(ctx, req)
+
+	// Should return unhealthy — cleanup goroutine is stale
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+
+	assert.NoError(t, dbMock.ExpectationsWereMet())
+}
+
+func TestHealthCheck_CleanupStartupGrace(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, dbMock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	// Expect ping to succeed
+	dbMock.ExpectPing()
+
+	// Fresh CleanupStatus with no heartbeat — within startup grace period
 	cleanupSt := cleanup.NewCleanupStatus()
 	cleanupInterval := 60 * time.Minute
 
@@ -1265,7 +1296,7 @@ func TestHealthCheck_StaleCleanupStatus(t *testing.T) {
 
 	resp, err := server.HealthCheck(ctx, req)
 
-	// Should still return healthy (cleanup staleness is warning-only, not an error)
+	// Should return healthy — within startup grace period
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Equal(t, "healthy", resp.Status)
@@ -1298,6 +1329,69 @@ func TestHealthCheck_HealthyCleanupStatus(t *testing.T) {
 	resp, err := server.HealthCheck(ctx, req)
 
 	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, "healthy", resp.Status)
+
+	assert.NoError(t, dbMock.ExpectationsWereMet())
+}
+
+func TestHealthCheck_CleanupStatusNonNil_ZeroInterval(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, dbMock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	dbMock.ExpectPing()
+
+	// Non-nil cleanupStatus but zero interval — cleanup check should be skipped
+	cleanupSt := cleanup.NewCleanupStatusWithCreatedAt(time.Now().Add(-24 * time.Hour))
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", cleanupSt, 0)
+
+	ctx := context.Background()
+	req := &pb.HealthCheckRequest{}
+
+	resp, err := server.HealthCheck(ctx, req)
+
+	// Should return healthy — zero interval skips cleanup check even though status is stale
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, "healthy", resp.Status)
+
+	assert.NoError(t, dbMock.ExpectationsWereMet())
+}
+
+func TestHealthCheck_CleanupRecoveryAfterHeartbeat(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, dbMock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	// Stale status (old creation, no heartbeat) — first call should fail
+	cleanupSt := cleanup.NewCleanupStatusWithCreatedAt(time.Now().Add(-24 * time.Hour))
+	cleanupInterval := 60 * time.Minute
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", cleanupSt, cleanupInterval)
+
+	ctx := context.Background()
+	req := &pb.HealthCheckRequest{}
+
+	dbMock.ExpectPing()
+	resp, err := server.HealthCheck(ctx, req)
+	assert.Error(t, err, "should be unhealthy before heartbeat")
+	assert.Nil(t, resp)
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+
+	// Record heartbeat — second call should succeed (recovery)
+	cleanupSt.RecordHeartbeat()
+
+	dbMock.ExpectPing()
+	resp, err = server.HealthCheck(ctx, req)
+	assert.NoError(t, err, "should be healthy after heartbeat")
 	assert.NotNil(t, resp)
 	assert.Equal(t, "healthy", resp.Status)
 

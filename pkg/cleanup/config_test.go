@@ -23,6 +23,9 @@ func TestNewCleanupConfigFromEnv_Defaults(t *testing.T) {
 	if cfg.MaxBatchesPerCycle != 100 {
 		t.Errorf("expected MaxBatchesPerCycle=100, got %d", cfg.MaxBatchesPerCycle)
 	}
+	if cfg.RetryBackoff != 5*time.Second {
+		t.Errorf("expected RetryBackoff=5s, got %v", cfg.RetryBackoff)
+	}
 }
 
 func TestNewCleanupConfigFromEnv_Overrides(t *testing.T) {
@@ -118,5 +121,30 @@ func TestNewCleanupConfigFromEnv_NegativeValuesClamped(t *testing.T) {
 	}
 	if cfg.MaxBatchesPerCycle != 1 {
 		t.Errorf("expected MaxBatchesPerCycle clamped to 1, got %d", cfg.MaxBatchesPerCycle)
+	}
+}
+
+func TestNewCleanupConfigFromEnv_RetryBackoff(t *testing.T) {
+	// Override
+	t.Setenv("CLEANUP_RETRY_BACKOFF_SECONDS", "10")
+	cfg := NewCleanupConfigFromEnv()
+	if cfg.RetryBackoff != 10*time.Second {
+		t.Errorf("expected RetryBackoff=10s, got %v", cfg.RetryBackoff)
+	}
+}
+
+func TestNewCleanupConfigFromEnv_RetryBackoffClampMin(t *testing.T) {
+	t.Setenv("CLEANUP_RETRY_BACKOFF_SECONDS", "0")
+	cfg := NewCleanupConfigFromEnv()
+	if cfg.RetryBackoff != 1*time.Second {
+		t.Errorf("expected RetryBackoff clamped to 1s, got %v", cfg.RetryBackoff)
+	}
+}
+
+func TestNewCleanupConfigFromEnv_RetryBackoffClampMax(t *testing.T) {
+	t.Setenv("CLEANUP_RETRY_BACKOFF_SECONDS", "120")
+	cfg := NewCleanupConfigFromEnv()
+	if cfg.RetryBackoff != 60*time.Second {
+		t.Errorf("expected RetryBackoff clamped to 60s, got %v", cfg.RetryBackoff)
 	}
 }

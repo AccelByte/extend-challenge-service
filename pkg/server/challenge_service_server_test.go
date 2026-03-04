@@ -1983,3 +1983,77 @@ func TestSelectedGoalToProto_FullConversion(t *testing.T) {
 	assert.Equal(t, "sword", result.Reward.RewardId)
 	assert.Equal(t, int32(1), result.Reward.Quantity)
 }
+
+// ========================
+// DeleteUserData (M6 GDPR)
+// ========================
+
+func TestDeleteUserData_Success(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, _, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
+
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "user123").Return(int64(5), nil)
+
+	ctx := createAuthContext("user123", "test-namespace")
+	resp, err := server.DeleteUserData(ctx, &pb.DeleteUserDataRequest{})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, "user123", resp.UserId)
+	assert.Equal(t, int64(5), resp.RowsDeleted)
+	mockRepo.AssertExpectations(t)
+}
+
+func TestDeleteUserData_NoAuthContext(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, _, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
+
+	// No user ID in context
+	resp, err := server.DeleteUserData(context.Background(), &pb.DeleteUserDataRequest{})
+
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+
+	st, ok := status.FromError(err)
+	assert.True(t, ok)
+	assert.Equal(t, codes.Unauthenticated, st.Code())
+}
+
+func TestDeleteUserData_DBError(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, _, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
+
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "user123").Return(int64(0), errors.New("db error"))
+
+	ctx := createAuthContext("user123", "test-namespace")
+	resp, err := server.DeleteUserData(ctx, &pb.DeleteUserDataRequest{})
+
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+
+	st, ok := status.FromError(err)
+	assert.True(t, ok)
+	assert.Equal(t, codes.Internal, st.Code())
+	mockRepo.AssertExpectations(t)
+}

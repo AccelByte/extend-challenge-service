@@ -13,6 +13,50 @@ func TestCollectors_ReturnsExactly5(t *testing.T) {
 	}
 }
 
+func TestNewHeartbeatGauge_Registerable(t *testing.T) {
+	status := NewCleanupStatus()
+	gauge := NewHeartbeatGauge(status)
+
+	reg := prometheus.NewRegistry()
+	if err := reg.Register(gauge); err != nil {
+		t.Fatalf("failed to register heartbeat gauge: %v", err)
+	}
+
+	// Before heartbeat: value should be 0
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("failed to gather metrics: %v", err)
+	}
+	found := false
+	for _, f := range families {
+		if f.GetName() == "challenge_cleanup_last_heartbeat_seconds" {
+			found = true
+			val := f.GetMetric()[0].GetGauge().GetValue()
+			if val != 0 {
+				t.Errorf("expected 0 before heartbeat, got %f", val)
+			}
+		}
+	}
+	if !found {
+		t.Error("heartbeat gauge metric not found")
+	}
+
+	// After heartbeat: value should be > 0
+	status.RecordHeartbeat()
+	families, err = reg.Gather()
+	if err != nil {
+		t.Fatalf("failed to gather after heartbeat: %v", err)
+	}
+	for _, f := range families {
+		if f.GetName() == "challenge_cleanup_last_heartbeat_seconds" {
+			val := f.GetMetric()[0].GetGauge().GetValue()
+			if val <= 0 {
+				t.Errorf("expected > 0 after heartbeat, got %f", val)
+			}
+		}
+	}
+}
+
 func TestCollectors_RegisterableWithPrometheus(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	for _, c := range Collectors() {

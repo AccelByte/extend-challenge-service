@@ -40,3 +40,14 @@ func Collectors() []prometheus.Collector {
 		cleanupPanics,
 	}
 }
+
+// NewHeartbeatGauge creates a GaugeFunc that reports the last cleanup heartbeat
+// as a Unix timestamp in seconds. This enables staleness detection via PromQL:
+//
+//	time() - challenge_cleanup_last_heartbeat_seconds > threshold
+func NewHeartbeatGauge(status *CleanupStatus) prometheus.GaugeFunc {
+	return prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "challenge_cleanup_last_heartbeat_seconds",
+		Help: "Unix timestamp (seconds) of the last cleanup cycle heartbeat.",
+	}, status.LastHeartbeatUnixSeconds)
+}

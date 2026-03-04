@@ -615,6 +615,43 @@ func buildRotationInfo(cfg *commonDomain.RotationConfig, now time.Time) *pb.Rota
 	return info
 }
 
+// DeleteUserData deletes all challenge progress data for the authenticated user (GDPR M6).
+// This is the gRPC implementation; HTTP traffic uses the custom GDPRDeletionHandler which
+// includes rate limiting. The gRPC path is provided for OpenAPI spec completeness.
+func (s *ChallengeServiceServer) DeleteUserData(
+	ctx context.Context,
+	_ *pb.DeleteUserDataRequest,
+) (*pb.DeleteUserDataResponse, error) {
+	userID, err := extractUserIDFromContext(ctx)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to extract user ID from context for GDPR deletion")
+		return nil, status.Error(codes.Unauthenticated, "missing or invalid authentication")
+	}
+
+	deleted, err := s.repo.DeleteUserData(ctx, s.namespace, userID)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"userId":    userID,
+			"namespace": s.namespace,
+			"error":     err,
+		}).Error("GDPR deletion via gRPC failed")
+		return nil, status.Error(codes.Internal, "failed to delete user data")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"userId":      userID,
+		"namespace":   s.namespace,
+		"rowsDeleted": deleted,
+		"audit":       true,
+		"auditAction": "gdpr_user_data_deletion",
+	}).Info("GDPR deletion via gRPC completed")
+
+	return &pb.DeleteUserDataResponse{
+		UserId:      userID,
+		RowsDeleted: deleted,
+	}, nil
+}
+
 // HealthCheck verifies service and database health
 func (s *ChallengeServiceServer) HealthCheck(
 	ctx context.Context,

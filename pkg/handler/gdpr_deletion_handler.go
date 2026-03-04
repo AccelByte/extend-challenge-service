@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -43,19 +44,46 @@ type GDPRDeletionHandler struct {
 }
 
 // NewGDPRDeletionHandler creates a new GDPR deletion handler.
+// The ctx parameter controls the lifecycle of the background eviction goroutine
+// that prevents memory leaks in the per-user rate limiter.
 func NewGDPRDeletionHandler(
+	ctx context.Context,
 	repo commonRepo.GoalRepository,
 	namespace string,
 	authEnabled bool,
 	tokenValidator validator.AuthTokenValidator,
 	logger *slog.Logger,
 ) *GDPRDeletionHandler {
-	return &GDPRDeletionHandler{
+	h := &GDPRDeletionHandler{
 		repo:           repo,
 		namespace:      namespace,
 		authEnabled:    authEnabled,
 		tokenValidator: tokenValidator,
 		logger:         logger,
+	}
+	go h.evictStaleEntries(ctx)
+	return h
+}
+
+// evictStaleEntries periodically removes rate limiter entries older than 2 minutes.
+// This prevents unbounded memory growth from the sync.Map rate limiter.
+func (h *GDPRDeletionHandler) evictStaleEntries(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now()
+			h.rateLimiter.Range(func(key, value any) bool {
+				if lastTime, ok := value.(time.Time); ok && now.Sub(lastTime) > 2*time.Minute {
+					h.rateLimiter.Delete(key)
+				}
+				return true
+			})
+		}
 	}
 }
 

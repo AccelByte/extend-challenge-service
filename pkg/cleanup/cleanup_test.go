@@ -322,7 +322,7 @@ func TestStartCleanupGoroutine_ImmediateExecution(t *testing.T) {
 	}
 	cfg := CleanupConfig{
 		Enabled:            true,
-		Interval:           10 * time.Second, // Long interval so ticker won't fire
+		Interval:           100 * time.Millisecond, // Short interval so max jitter (50ms) is fast
 		RetentionDays:      7,
 		BatchSize:          1000,
 		MaxBatchesPerCycle: 100,
@@ -336,8 +336,8 @@ func TestStartCleanupGoroutine_ImmediateExecution(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait briefly for immediate execution to complete
-	time.Sleep(100 * time.Millisecond)
+	// Wait for jitter + immediate execution to complete
+	time.Sleep(200 * time.Millisecond)
 	cancel()
 
 	select {
@@ -436,7 +436,7 @@ func TestStartCleanupGoroutine_PanicThenRecover(t *testing.T) {
 	m := &panicOnceRepo{}
 	cfg := CleanupConfig{
 		Enabled:            true,
-		Interval:           10 * time.Second, // Long interval — we only care about the restart
+		Interval:           200 * time.Millisecond, // Short interval so jitter is small (max 100ms)
 		RetentionDays:      7,
 		BatchSize:          1000,
 		MaxBatchesPerCycle: 100,
@@ -450,7 +450,7 @@ func TestStartCleanupGoroutine_PanicThenRecover(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait for restart + second run, then cancel
+	// Wait for jitter + panic + restart backoff (1s) + jitter + second run
 	time.Sleep(3 * time.Second)
 	cancel()
 
@@ -677,4 +677,92 @@ func (m *panicOnceRepo) DeleteExpiredRows(ctx context.Context, ns string, cutoff
 		panic("test panic on first call")
 	}
 	return m.mockRepo.DeleteExpiredRows(ctx, ns, cutoff, batchSize)
+}
+
+func TestRunCleanupLoop_JitterContextCancel(t *testing.T) {
+	resetMetrics()
+
+	m := &mockRepo{}
+	cfg := CleanupConfig{
+		Enabled:            true,
+		Interval:           10 * time.Minute, // Large interval = large max jitter
+		MaxBatchesPerCycle: 100,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel immediately — should interrupt jitter sleep
+	cancel()
+
+	result := runCleanupLoop(ctx, m, cfg, "test-ns", nil, testLogger())
+	if !result {
+		t.Error("expected runCleanupLoop to return true (normal exit via context cancel during jitter)")
+	}
+
+	// No cleanup calls should have been made (cancelled during jitter)
+	calls := m.getCalls()
+	if len(calls) != 0 {
+		t.Errorf("expected 0 calls (cancelled during jitter), got %d", len(calls))
+	}
+}
+
+func TestRunCleanupLoop_JitterShortInterval(t *testing.T) {
+	resetMetrics()
+
+	m := &mockRepo{
+		results: []mockCleanerResult{
+			{deleted: 10, err: nil},
+		},
+	}
+	cfg := CleanupConfig{
+		Enabled:            true,
+		Interval:           10 * time.Millisecond, // Very short interval = max jitter 5ms
+		RetentionDays:      7,
+		BatchSize:          1000,
+		MaxBatchesPerCycle: 100,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan bool, 1)
+	go func() {
+		result := runCleanupLoop(ctx, m, cfg, "test-ns", nil, testLogger())
+		done <- result
+	}()
+
+	// Wait for jitter + first cycle
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case result := <-done:
+		if !result {
+			t.Error("expected normal exit")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("goroutine did not exit within 2 seconds")
+	}
+
+	calls := m.getCalls()
+	if len(calls) < 1 {
+		t.Errorf("expected at least 1 call after jitter, got %d", len(calls))
+	}
+}
+
+func TestRandomJitter(t *testing.T) {
+	// Zero/negative max should return 0
+	if j := randomJitter(0); j != 0 {
+		t.Errorf("expected 0 for maxJitter=0, got %v", j)
+	}
+	if j := randomJitter(-time.Second); j != 0 {
+		t.Errorf("expected 0 for negative maxJitter, got %v", j)
+	}
+
+	// Positive max should return value in [0, max)
+	max := 100 * time.Millisecond
+	for range 10 {
+		j := randomJitter(max)
+		if j < 0 || j >= max {
+			t.Errorf("jitter %v not in [0, %v)", j, max)
+		}
+	}
 }

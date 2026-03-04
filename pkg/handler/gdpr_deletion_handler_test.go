@@ -133,7 +133,7 @@ func TestGDPRDeletionHandler_Success(t *testing.T) {
 	mockRepo := &MockGDPRGoalRepository{}
 	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "test-user-id").Return(int64(5), nil)
 
-	handler := NewGDPRDeletionHandler(mockRepo, "test-namespace", false, nil, testGDPRLogger())
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", false, nil, testGDPRLogger())
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
 	req.Header.Set("x-mock-user-id", "test-user-id")
@@ -151,7 +151,7 @@ func TestGDPRDeletionHandler_SuccessNoRows(t *testing.T) {
 	mockRepo := &MockGDPRGoalRepository{}
 	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "new-user").Return(int64(0), nil)
 
-	handler := NewGDPRDeletionHandler(mockRepo, "test-namespace", false, nil, testGDPRLogger())
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", false, nil, testGDPRLogger())
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
 	req.Header.Set("x-mock-user-id", "new-user")
@@ -166,7 +166,7 @@ func TestGDPRDeletionHandler_SuccessNoRows(t *testing.T) {
 
 func TestGDPRDeletionHandler_MethodNotAllowed(t *testing.T) {
 	mockRepo := &MockGDPRGoalRepository{}
-	handler := NewGDPRDeletionHandler(mockRepo, "test-namespace", false, nil, testGDPRLogger())
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", false, nil, testGDPRLogger())
 
 	methods := []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch}
 	for _, method := range methods {
@@ -188,7 +188,7 @@ func TestGDPRDeletionHandler_MethodNotAllowed(t *testing.T) {
 
 func TestGDPRDeletionHandler_AuthEnabled_NoHeader(t *testing.T) {
 	mockRepo := &MockGDPRGoalRepository{}
-	handler := NewGDPRDeletionHandler(mockRepo, "test-namespace", true, nil, testGDPRLogger())
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", true, nil, testGDPRLogger())
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
 	rr := httptest.NewRecorder()
@@ -209,7 +209,7 @@ func TestGDPRDeletionHandler_DBError(t *testing.T) {
 	mockRepo := &MockGDPRGoalRepository{}
 	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "test-user-id").Return(int64(0), errors.New("db error"))
 
-	handler := NewGDPRDeletionHandler(mockRepo, "test-namespace", false, nil, testGDPRLogger())
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", false, nil, testGDPRLogger())
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
 	req.Header.Set("x-mock-user-id", "test-user-id")
@@ -233,7 +233,7 @@ func TestGDPRDeletionHandler_RateLimit(t *testing.T) {
 	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "user-a").Return(int64(3), nil)
 	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "user-b").Return(int64(1), nil)
 
-	handler := NewGDPRDeletionHandler(mockRepo, "test-namespace", false, nil, testGDPRLogger())
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", false, nil, testGDPRLogger())
 
 	// First call for user-a succeeds
 	req1 := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
@@ -266,7 +266,7 @@ func TestGDPRDeletionHandler_DefaultTestUser(t *testing.T) {
 	mockRepo := &MockGDPRGoalRepository{}
 	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "test-user-id").Return(int64(0), nil)
 
-	handler := NewGDPRDeletionHandler(mockRepo, "test-namespace", false, nil, testGDPRLogger())
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", false, nil, testGDPRLogger())
 
 	// No x-mock-user-id header, should default to "test-user-id"
 	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
@@ -277,4 +277,17 @@ func TestGDPRDeletionHandler_DefaultTestUser(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), `"userId":"test-user-id"`)
 	mockRepo.AssertExpectations(t)
+}
+
+func TestGDPRDeletionHandler_EvictionContextCancel(t *testing.T) {
+	mockRepo := &MockGDPRGoalRepository{}
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Create handler with cancellable context
+	_ = NewGDPRDeletionHandler(ctx, mockRepo, "test-namespace", false, nil, testGDPRLogger())
+
+	// Cancel should not panic — eviction goroutine exits cleanly
+	cancel()
+	// Give goroutine time to exit
+	time.Sleep(50 * time.Millisecond)
 }

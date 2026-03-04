@@ -2,8 +2,10 @@ package cleanup
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"time"
 
 	"github.com/AccelByte/extend-challenge-common/pkg/repository"
@@ -69,6 +71,18 @@ func runCleanupLoop(ctx context.Context, repo repository.GoalRepository, cfg Cle
 		"namespace", namespace,
 	)
 
+	// Replica jitter: random startup delay in [0, interval/2) to spread cleanup cycles
+	// across replicas and reduce thundering herd effects on the database.
+	if jitter := randomJitter(cfg.Interval / 2); jitter > 0 {
+		logger.Info("cleanup goroutine applying startup jitter", "jitter", jitter)
+		select {
+		case <-time.After(jitter):
+		case <-ctx.Done():
+			logger.Info("cleanup goroutine jitter interrupted by context cancellation")
+			return true
+		}
+	}
+
 	// D3: Track cycle count for initial turbo mode
 	cycleCount := 0
 
@@ -100,8 +114,9 @@ func runCleanupLoop(ctx context.Context, repo repository.GoalRepository, cfg Cle
 // runCleanupCycle executes one cleanup cycle, deleting expired rows in batches.
 // It stops after maxBatches batches to prevent sustained DB pressure.
 func runCleanupCycle(ctx context.Context, repo repository.GoalRepository, cfg CleanupConfig, namespace string, maxBatches int, logger *slog.Logger) {
-	start := time.Now()
-	cutoff := time.Now().UTC().Add(-time.Duration(cfg.RetentionDays) * 24 * time.Hour)
+	now := time.Now()
+	start := now
+	cutoff := now.UTC().Add(-time.Duration(cfg.RetentionDays) * 24 * time.Hour)
 
 	// D4: Always record cycle metrics, even on error
 	defer func() {
@@ -176,4 +191,17 @@ func runCleanupCycle(ctx context.Context, repo repository.GoalRepository, cfg Cl
 		"duration", time.Since(start),
 		"cutoff", cutoff,
 	)
+}
+
+// randomJitter returns a random duration in [0, maxJitter) using crypto/rand.
+// Returns 0 if maxJitter <= 0.
+func randomJitter(maxJitter time.Duration) time.Duration {
+	if maxJitter <= 0 {
+		return 0
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(maxJitter)))
+	if err != nil {
+		return 0
+	}
+	return time.Duration(n.Int64())
 }

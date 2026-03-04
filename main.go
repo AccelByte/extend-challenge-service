@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -318,6 +319,7 @@ func main() {
 
 		// Create GDPR deletion handler (DELETE /v1/users/me/data)
 		gdprDeletionHandler := handler.NewGDPRDeletionHandler(
+			ctx,
 			goalRepo,
 			namespace,
 			authEnabled,
@@ -353,7 +355,13 @@ func main() {
 
 	// M6: Start expired row cleanup goroutine
 	prometheusRegistry.MustRegister(cleanup.Collectors()...)
-	go cleanup.StartCleanupGoroutine(ctx, goalRepo, cleanupCfg, namespace, cleanupStatus, slogLogger)
+	prometheusRegistry.MustRegister(cleanup.NewHeartbeatGauge(cleanupStatus))
+	var cleanupWg sync.WaitGroup
+	cleanupWg.Add(1)
+	go func() {
+		defer cleanupWg.Done()
+		cleanup.StartCleanupGoroutine(ctx, goalRepo, cleanupCfg, namespace, cleanupStatus, slogLogger)
+	}()
 
 	go func() {
 		mux := http.NewServeMux()
@@ -420,10 +428,13 @@ func main() {
 
 	logrus.Infof("%s started", serviceName)
 
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	signalCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	<-ctx.Done()
-	logrus.Infof("SIGTERM received")
+	<-signalCtx.Done()
+	logrus.Infof("SIGTERM received, draining cleanup goroutine...")
+	cancel()
+	cleanupWg.Wait()
+	logrus.Infof("Cleanup goroutine drained, shutting down")
 }
 
 func newGRPCGatewayHTTPServer(

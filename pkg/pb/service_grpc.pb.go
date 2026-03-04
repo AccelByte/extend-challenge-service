@@ -30,6 +30,7 @@ const (
 	Service_BatchSelectGoals_FullMethodName  = "/service.Service/BatchSelectGoals"
 	Service_RandomSelectGoals_FullMethodName = "/service.Service/RandomSelectGoals"
 	Service_GetRotationStatus_FullMethodName = "/service.Service/GetRotationStatus"
+	Service_DeleteUserData_FullMethodName    = "/service.Service/DeleteUserData"
 	Service_HealthCheck_FullMethodName       = "/service.Service/HealthCheck"
 )
 
@@ -52,6 +53,8 @@ type ServiceClient interface {
 	RandomSelectGoals(ctx context.Context, in *RandomSelectRequest, opts ...grpc.CallOption) (*GoalSelectionResponse, error)
 	// M5: Get rotation status for a challenge
 	GetRotationStatus(ctx context.Context, in *GetRotationStatusRequest, opts ...grpc.CallOption) (*GetRotationStatusResponse, error)
+	// M6: GDPR user data deletion
+	DeleteUserData(ctx context.Context, in *DeleteUserDataRequest, opts ...grpc.CallOption) (*DeleteUserDataResponse, error)
 	// Health check endpoint (Decision FQ5)
 	HealthCheck(ctx context.Context, in *HealthCheckRequest, opts ...grpc.CallOption) (*HealthCheckResponse, error)
 }
@@ -127,6 +130,15 @@ func (c *serviceClient) GetRotationStatus(ctx context.Context, in *GetRotationSt
 	return out, nil
 }
 
+func (c *serviceClient) DeleteUserData(ctx context.Context, in *DeleteUserDataRequest, opts ...grpc.CallOption) (*DeleteUserDataResponse, error) {
+	out := new(DeleteUserDataResponse)
+	err := c.cc.Invoke(ctx, Service_DeleteUserData_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *serviceClient) HealthCheck(ctx context.Context, in *HealthCheckRequest, opts ...grpc.CallOption) (*HealthCheckResponse, error) {
 	out := new(HealthCheckResponse)
 	err := c.cc.Invoke(ctx, Service_HealthCheck_FullMethodName, in, out, opts...)
@@ -155,6 +167,8 @@ type ServiceServer interface {
 	RandomSelectGoals(context.Context, *RandomSelectRequest) (*GoalSelectionResponse, error)
 	// M5: Get rotation status for a challenge
 	GetRotationStatus(context.Context, *GetRotationStatusRequest) (*GetRotationStatusResponse, error)
+	// M6: GDPR user data deletion
+	DeleteUserData(context.Context, *DeleteUserDataRequest) (*DeleteUserDataResponse, error)
 	// Health check endpoint (Decision FQ5)
 	HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error)
 	mustEmbedUnimplementedServiceServer()
@@ -184,6 +198,9 @@ func (UnimplementedServiceServer) RandomSelectGoals(context.Context, *RandomSele
 }
 func (UnimplementedServiceServer) GetRotationStatus(context.Context, *GetRotationStatusRequest) (*GetRotationStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRotationStatus not implemented")
+}
+func (UnimplementedServiceServer) DeleteUserData(context.Context, *DeleteUserDataRequest) (*DeleteUserDataResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteUserData not implemented")
 }
 func (UnimplementedServiceServer) HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method HealthCheck not implemented")
@@ -327,6 +344,24 @@ func _Service_GetRotationStatus_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Service_DeleteUserData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteUserDataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServiceServer).DeleteUserData(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Service_DeleteUserData_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServiceServer).DeleteUserData(ctx, req.(*DeleteUserDataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Service_HealthCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(HealthCheckRequest)
 	if err := dec(in); err != nil {
@@ -379,6 +414,10 @@ var Service_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRotationStatus",
 			Handler:    _Service_GetRotationStatus_Handler,
+		},
+		{
+			MethodName: "DeleteUserData",
+			Handler:    _Service_DeleteUserData_Handler,
 		},
 		{
 			MethodName: "HealthCheck",

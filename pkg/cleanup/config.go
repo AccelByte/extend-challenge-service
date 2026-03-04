@@ -80,6 +80,16 @@ func NewCleanupConfigFromEnv() CleanupConfig {
 		initialCycles = 0
 	}
 
+	retryBackoffSeconds := common.GetEnvInt("CLEANUP_RETRY_BACKOFF_SECONDS", 5)
+	if retryBackoffSeconds < 1 {
+		logger.Warn("CLEANUP_RETRY_BACKOFF_SECONDS clamped to minimum 1", "original", retryBackoffSeconds)
+		retryBackoffSeconds = 1
+	}
+	if retryBackoffSeconds > 60 {
+		logger.Warn("CLEANUP_RETRY_BACKOFF_SECONDS clamped to maximum 60", "original", retryBackoffSeconds)
+		retryBackoffSeconds = 60
+	}
+
 	return CleanupConfig{
 		Enabled:            common.GetEnvBool("CLEANUP_ENABLED", true),
 		Interval:           time.Duration(interval) * time.Minute,
@@ -89,6 +99,6 @@ func NewCleanupConfigFromEnv() CleanupConfig {
 		BatchPauseMs:       batchPauseMs,
 		InitialMaxBatches:  initialMaxBatches,
 		InitialCycles:      initialCycles,
-		RetryBackoff:       5 * time.Second,
+		RetryBackoff:       time.Duration(retryBackoffSeconds) * time.Second,
 	}
 }

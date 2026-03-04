@@ -8,10 +8,6 @@
   "tags": [
     {
       "name": "Service"
-    },
-    {
-      "name": "GDPR",
-      "description": "GDPR compliance endpoints for user data management"
     }
   ],
   "basePath": "/challenge",
@@ -345,42 +341,6 @@
         ]
       }
     },
-    "/v1/users/me/data": {
-      "x-manual-entry": true,
-      "delete": {
-        "summary": "Delete user data (GDPR)",
-        "description": "Delete all goal progress data for the authenticated user. Used for GDPR right-to-erasure compliance.",
-        "operationId": "GDPR_DeleteUserData",
-        "responses": {
-          "200": {
-            "description": "User data deleted successfully.",
-            "schema": {
-              "$ref": "#/definitions/serviceGDPRDeletionResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized - missing or invalid bearer token.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          },
-          "500": {
-            "description": "Internal server error.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "tags": [
-          "GDPR"
-        ],
-        "security": [
-          {
-            "Bearer": []
-          }
-        ]
-      }
-    },
     "/v1/challenges/{challengeId}/rotation": {
       "get": {
         "summary": "Get rotation status",
@@ -410,6 +370,35 @@
         ],
         "tags": [
           "Challenges"
+        ],
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/users/me/data": {
+      "delete": {
+        "summary": "Delete user data (GDPR)",
+        "description": "Delete all challenge progress data for the authenticated user. Irreversible. Rate limited to 1 request per minute per user.",
+        "operationId": "Service_DeleteUserData",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/serviceDeleteUserDataResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "GDPR"
         ],
         "security": [
           {
@@ -530,17 +519,15 @@
         }
       }
     },
-    "serviceGDPRDeletionResponse": {
+    "serviceDeleteUserDataResponse": {
       "type": "object",
       "properties": {
         "userId": {
-          "type": "string",
-          "description": "The user ID whose data was deleted"
+          "type": "string"
         },
         "rowsDeleted": {
-          "type": "integer",
-          "format": "int64",
-          "description": "Number of goal progress rows deleted"
+          "type": "string",
+          "format": "int64"
         }
       }
     },

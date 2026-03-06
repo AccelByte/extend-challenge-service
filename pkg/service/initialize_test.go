@@ -33,12 +33,12 @@ func TestInitializePlayer_FirstLogin(t *testing.T) {
 			Name:            "First Login",
 			Description:     "Login for the first time",
 			DefaultAssigned: true, // Will create row with is_active = true
-			Type:            domain.GoalTypeAbsolute,
 			EventSource:     domain.EventSourceLogin,
 			Requirement: domain.Requirement{
-				StatCode:    "login_count",
-				Operator:    ">=",
-				TargetValue: 1,
+				StatCode:     "login_count",
+				Operator:     ">=",
+				TargetValue:  1,
+				ProgressMode: domain.ProgressModeAbsolute,
 			},
 			Reward: domain.Reward{
 				Type:     string(domain.RewardTypeItem),
@@ -52,12 +52,12 @@ func TestInitializePlayer_FirstLogin(t *testing.T) {
 			Name:            "Complete Tutorial",
 			Description:     "Finish the tutorial",
 			DefaultAssigned: true, // Will create row with is_active = true
-			Type:            domain.GoalTypeAbsolute,
 			EventSource:     domain.EventSourceStatistic,
 			Requirement: domain.Requirement{
-				StatCode:    "tutorial_complete",
-				Operator:    ">=",
-				TargetValue: 1,
+				StatCode:     "tutorial_complete",
+				Operator:     ">=",
+				TargetValue:  1,
+				ProgressMode: domain.ProgressModeAbsolute,
 			},
 			Reward: domain.Reward{
 				Type:     string(domain.RewardTypeWallet),
@@ -152,12 +152,12 @@ func TestInitializePlayer_SubsequentLogin_FastPath(t *testing.T) {
 			ChallengeID:     "challenge1",
 			Name:            "First Login",
 			DefaultAssigned: true,
-			Type:            domain.GoalTypeAbsolute,
 			EventSource:     domain.EventSourceLogin,
 			Requirement: domain.Requirement{
-				StatCode:    "login_count",
-				Operator:    ">=",
-				TargetValue: 1,
+				StatCode:     "login_count",
+				Operator:     ">=",
+				TargetValue:  1,
+				ProgressMode: domain.ProgressModeAbsolute,
 			},
 			Reward: domain.Reward{
 				Type:     string(domain.RewardTypeItem),
@@ -229,9 +229,9 @@ func TestInitializePlayer_ReturningUser_ActiveGoals(t *testing.T) {
 
 	// Config has 3 default-assigned goals
 	defaultGoals := []*domain.Goal{
-		{ID: "goal1", ChallengeID: "challenge1", Name: "Old Goal 1", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
-		{ID: "goal2", ChallengeID: "challenge1", Name: "Goal 2", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceStatistic, Requirement: domain.Requirement{StatCode: "stat1", Operator: ">=", TargetValue: 5}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item2", Quantity: 1}},
-		{ID: "goal3", ChallengeID: "challenge2", Name: "Goal 3", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceStatistic, Requirement: domain.Requirement{StatCode: "stat2", Operator: ">=", TargetValue: 10}, Reward: domain.Reward{Type: string(domain.RewardTypeWallet), RewardID: "GEMS", Quantity: 100}},
+		{ID: "goal1", ChallengeID: "challenge1", Name: "Old Goal 1", DefaultAssigned: true, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1, ProgressMode: domain.ProgressModeAbsolute}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
+		{ID: "goal2", ChallengeID: "challenge1", Name: "Goal 2", DefaultAssigned: true, EventSource: domain.EventSourceStatistic, Requirement: domain.Requirement{StatCode: "stat1", Operator: ">=", TargetValue: 5, ProgressMode: domain.ProgressModeAbsolute}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item2", Quantity: 1}},
+		{ID: "goal3", ChallengeID: "challenge2", Name: "Goal 3", DefaultAssigned: true, EventSource: domain.EventSourceStatistic, Requirement: domain.Requirement{StatCode: "stat2", Operator: ">=", TargetValue: 10, ProgressMode: domain.ProgressModeAbsolute}, Reward: domain.Reward{Type: string(domain.RewardTypeWallet), RewardID: "GEMS", Quantity: 100}},
 	}
 
 	now := time.Now()
@@ -377,7 +377,7 @@ func TestInitializePlayer_GetUserGoalCountError(t *testing.T) {
 	namespace := "test-namespace"
 
 	defaultGoals := []*domain.Goal{
-		{ID: "goal1", ChallengeID: "challenge1", Name: "Goal 1", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
+		{ID: "goal1", ChallengeID: "challenge1", Name: "Goal 1", DefaultAssigned: true, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1, ProgressMode: domain.ProgressModeAbsolute}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
 	}
 
 	mockCache := new(MockGoalCache)
@@ -407,7 +407,7 @@ func TestInitializePlayer_GetActiveGoalsError(t *testing.T) {
 	namespace := "test-namespace"
 
 	defaultGoals := []*domain.Goal{
-		{ID: "goal1", ChallengeID: "challenge1", Name: "Goal 1", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
+		{ID: "goal1", ChallengeID: "challenge1", Name: "Goal 1", DefaultAssigned: true, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1, ProgressMode: domain.ProgressModeAbsolute}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
 	}
 
 	mockCache := new(MockGoalCache)
@@ -444,7 +444,7 @@ func TestInitializePlayer_BulkInsertError(t *testing.T) {
 	namespace := "test-namespace"
 
 	defaultGoals := []*domain.Goal{
-		{ID: "goal1", ChallengeID: "challenge1", Name: "Goal 1", DefaultAssigned: true, Type: domain.GoalTypeAbsolute, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
+		{ID: "goal1", ChallengeID: "challenge1", Name: "Goal 1", DefaultAssigned: true, EventSource: domain.EventSourceLogin, Requirement: domain.Requirement{StatCode: "login_count", Operator: ">=", TargetValue: 1, ProgressMode: domain.ProgressModeAbsolute}, Reward: domain.Reward{Type: string(domain.RewardTypeItem), RewardID: "item1", Quantity: 1}},
 	}
 
 	mockCache := new(MockGoalCache)
@@ -510,7 +510,6 @@ func TestMapToAssignedGoals_GoalNotFoundInCache(t *testing.T) {
 // Test mapToAssignedGoals - Complete Mapping
 func TestMapToAssignedGoals_CompleteMapping(t *testing.T) {
 	now := time.Now()
-	expiresAt := now.Add(24 * time.Hour)
 
 	progresses := []*domain.UserGoalProgress{
 		{
@@ -522,7 +521,6 @@ func TestMapToAssignedGoals_CompleteMapping(t *testing.T) {
 			Status:      domain.GoalStatusInProgress,
 			IsActive:    true,
 			AssignedAt:  &now,
-			ExpiresAt:   &expiresAt,
 		},
 	}
 
@@ -531,12 +529,12 @@ func TestMapToAssignedGoals_CompleteMapping(t *testing.T) {
 		ChallengeID: "challenge1",
 		Name:        "Test Goal",
 		Description: "Test Description",
-		Type:        domain.GoalTypeIncrement,
 		EventSource: domain.EventSourceStatistic,
 		Requirement: domain.Requirement{
-			StatCode:    "test_stat",
-			Operator:    ">=",
-			TargetValue: 10,
+			StatCode:     "test_stat",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeWallet),
@@ -561,11 +559,11 @@ func TestMapToAssignedGoals_CompleteMapping(t *testing.T) {
 	assert.Equal(t, "Test Description", ag.Description)
 	assert.True(t, ag.IsActive)
 	assert.Equal(t, &now, ag.AssignedAt)
-	assert.Equal(t, &expiresAt, ag.ExpiresAt)
+	assert.Nil(t, ag.ExpiresAt) // M5: No rotation config → nil ExpiresAt
 	assert.Equal(t, 7, ag.Progress)
 	assert.Equal(t, 10, ag.Target)
 	assert.Equal(t, "in_progress", ag.Status)
-	assert.Equal(t, domain.GoalTypeIncrement, ag.Type)
+	assert.Equal(t, domain.ProgressModeAbsolute, ag.ProgressMode)
 	assert.Equal(t, domain.EventSourceStatistic, ag.EventSource)
 
 	// Verify requirement mapping

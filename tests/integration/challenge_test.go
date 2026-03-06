@@ -38,8 +38,8 @@ func TestGetUserChallenges_EmptyProgress(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 
-	// Should return all challenges from test config (winter-challenge-2025 + daily-quests)
-	assert.Len(t, resp.Challenges, 2)
+	// Should return all challenges from test config (winter-challenge-2025 + daily-quests + rotation-challenge)
+	assert.Len(t, resp.Challenges, 3)
 
 	// Verify challenges are present
 	winterChallenge := findChallenge(resp.Challenges, "winter-challenge-2025")
@@ -51,6 +51,11 @@ func TestGetUserChallenges_EmptyProgress(t *testing.T) {
 	assert.NotNil(t, dailyQuests)
 	assert.Equal(t, "Daily Quests", dailyQuests.Name)
 	assert.Len(t, dailyQuests.Goals, 2) // login-today, play-3-matches
+
+	rotationChallenge := findChallenge(resp.Challenges, "rotation-challenge")
+	assert.NotNil(t, rotationChallenge)
+	assert.Equal(t, "Rotation Challenge", rotationChallenge.Name)
+	assert.Len(t, rotationChallenge.Goals, 2) // daily-kills-relative, weekly-wins-no-reset
 
 	// Verify MockRewardClient was not called
 	mockRewardClient.AssertNotCalled(t, "GrantReward")
@@ -73,7 +78,7 @@ func TestGetUserChallenges_WithProgress(t *testing.T) {
 	resp, err := client.GetUserChallenges(ctx, req)
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
-	assert.Len(t, resp.Challenges, 2) // winter-challenge-2025 + daily-quests
+	assert.Len(t, resp.Challenges, 3) // winter-challenge-2025 + daily-quests + rotation-challenge
 
 	// Find winter-challenge-2025
 	winterChallenge := findChallenge(resp.Challenges, "winter-challenge-2025")

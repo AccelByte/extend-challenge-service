@@ -10,6 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testNow is a fixed time used across all mapper tests for deterministic results.
+var testNow = time.Date(2025, 6, 15, 14, 0, 0, 0, time.UTC)
+
 func TestChallengeToProto_Success(t *testing.T) {
 	challenge := &domain.Challenge{
 		ID:          "winter-challenge",
@@ -45,7 +48,7 @@ func TestChallengeToProto_Success(t *testing.T) {
 		},
 	}
 
-	pbChallenge, err := ChallengeToProto(challenge, userProgress)
+	pbChallenge, err := ChallengeToProto(challenge, userProgress, testNow)
 
 	require.NoError(t, err)
 	assert.Equal(t, "winter-challenge", pbChallenge.ChallengeId)
@@ -57,7 +60,7 @@ func TestChallengeToProto_Success(t *testing.T) {
 }
 
 func TestChallengeToProto_NilChallenge(t *testing.T) {
-	_, err := ChallengeToProto(nil, nil)
+	_, err := ChallengeToProto(nil, nil, testNow)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "challenge cannot be nil")
@@ -68,11 +71,11 @@ func TestGoalToProto_WithProgress(t *testing.T) {
 		ID:          "goal-1",
 		Name:        "Test Goal",
 		Description: "Test description",
-		Type:        domain.GoalTypeAbsolute,
 		Requirement: domain.Requirement{
-			StatCode:    "kills",
-			Operator:    ">=",
-			TargetValue: 10,
+			StatCode:     "kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeItem),
@@ -93,7 +96,7 @@ func TestGoalToProto_WithProgress(t *testing.T) {
 		},
 	}
 
-	pbGoal, err := GoalToProto(goal, userProgress)
+	pbGoal, err := GoalToProto(goal, userProgress, testNow)
 
 	require.NoError(t, err)
 	assert.Equal(t, "goal-1", pbGoal.GoalId)
@@ -109,11 +112,11 @@ func TestGoalToProto_NoProgress(t *testing.T) {
 		ID:          "goal-1",
 		Name:        "Test Goal",
 		Description: "Test description",
-		Type:        domain.GoalTypeAbsolute,
 		Requirement: domain.Requirement{
-			StatCode:    "kills",
-			Operator:    ">=",
-			TargetValue: 10,
+			StatCode:     "kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeItem),
@@ -123,7 +126,7 @@ func TestGoalToProto_NoProgress(t *testing.T) {
 		Prerequisites: []string{},
 	}
 
-	pbGoal, err := GoalToProto(goal, map[string]*domain.UserGoalProgress{})
+	pbGoal, err := GoalToProto(goal, map[string]*domain.UserGoalProgress{}, testNow)
 
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), pbGoal.Progress)
@@ -134,7 +137,7 @@ func TestGoalToProto_NoProgress(t *testing.T) {
 }
 
 func TestGoalToProto_NilGoal(t *testing.T) {
-	_, err := GoalToProto(nil, nil)
+	_, err := GoalToProto(nil, nil, testNow)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "goal cannot be nil")
@@ -142,9 +145,9 @@ func TestGoalToProto_NilGoal(t *testing.T) {
 
 func TestComputeProgress_DailyGoal_CompletedToday(t *testing.T) {
 	goal := &domain.Goal{
-		Type: domain.GoalTypeDaily,
 		Requirement: domain.Requirement{
-			TargetValue: 1,
+			TargetValue:  1,
+			ProgressMode: domain.ProgressModeRelative,
 		},
 	}
 
@@ -157,18 +160,19 @@ func TestComputeProgress_DailyGoal_CompletedToday(t *testing.T) {
 
 	result := ComputeProgress(goal, progress)
 
-	assert.Equal(t, int32(1), result)
+	// Relative mode with nil baseline → 0
+	assert.Equal(t, int32(0), result)
 }
 
 func TestComputeProgress_DailyGoal_CompletedYesterday(t *testing.T) {
 	goal := &domain.Goal{
-		Type: domain.GoalTypeDaily,
 		Requirement: domain.Requirement{
-			TargetValue: 1,
+			TargetValue:  1,
+			ProgressMode: domain.ProgressModeRelative,
 		},
 	}
 
-	// Completed yesterday
+	// Completed yesterday - ComputeProgress now uses CalculateDisplayedProgress
 	yesterday := time.Now().UTC().Add(-24 * time.Hour)
 	progress := &domain.UserGoalProgress{
 		Progress:    1,
@@ -177,14 +181,15 @@ func TestComputeProgress_DailyGoal_CompletedYesterday(t *testing.T) {
 
 	result := ComputeProgress(goal, progress)
 
-	assert.Equal(t, int32(0), result) // Reset to 0 because not completed today
+	// Relative mode with nil baseline → 0
+	assert.Equal(t, int32(0), result)
 }
 
 func TestComputeProgress_DailyGoal_NotCompleted(t *testing.T) {
 	goal := &domain.Goal{
-		Type: domain.GoalTypeDaily,
 		Requirement: domain.Requirement{
-			TargetValue: 1,
+			TargetValue:  1,
+			ProgressMode: domain.ProgressModeRelative,
 		},
 	}
 
@@ -199,9 +204,9 @@ func TestComputeProgress_DailyGoal_NotCompleted(t *testing.T) {
 
 func TestComputeProgress_AbsoluteGoal(t *testing.T) {
 	goal := &domain.Goal{
-		Type: domain.GoalTypeAbsolute,
 		Requirement: domain.Requirement{
-			TargetValue: 10,
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 	}
 
@@ -216,9 +221,9 @@ func TestComputeProgress_AbsoluteGoal(t *testing.T) {
 
 func TestComputeProgress_IncrementGoal(t *testing.T) {
 	goal := &domain.Goal{
-		Type: domain.GoalTypeIncrement,
 		Requirement: domain.Requirement{
-			TargetValue: 10,
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeRelative,
 		},
 	}
 
@@ -228,7 +233,28 @@ func TestComputeProgress_IncrementGoal(t *testing.T) {
 
 	result := ComputeProgress(goal, progress)
 
-	assert.Equal(t, int32(5), result)
+	// Relative mode with nil baseline → 0
+	assert.Equal(t, int32(0), result)
+}
+
+func TestComputeProgress_RelativeWithBaseline(t *testing.T) {
+	goal := &domain.Goal{
+		Requirement: domain.Requirement{
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeRelative,
+		},
+	}
+
+	baseline := 50
+	progress := &domain.UserGoalProgress{
+		Progress:      57,
+		BaselineValue: &baseline,
+	}
+
+	result := ComputeProgress(goal, progress)
+
+	// 57 - 50 = 7
+	assert.Equal(t, int32(7), result)
 }
 
 func TestComputeProgress_NilInputs(t *testing.T) {
@@ -325,7 +351,7 @@ func TestChallengesToProto_Success(t *testing.T) {
 		},
 	}
 
-	pbChallenges, err := ChallengesToProto(challenges, map[string]*domain.UserGoalProgress{})
+	pbChallenges, err := ChallengesToProto(challenges, map[string]*domain.UserGoalProgress{}, testNow)
 
 	require.NoError(t, err)
 	assert.Len(t, pbChallenges, 2)
@@ -334,14 +360,14 @@ func TestChallengesToProto_Success(t *testing.T) {
 }
 
 func TestChallengesToProto_EmptySlice(t *testing.T) {
-	pbChallenges, err := ChallengesToProto([]*domain.Challenge{}, map[string]*domain.UserGoalProgress{})
+	pbChallenges, err := ChallengesToProto([]*domain.Challenge{}, map[string]*domain.UserGoalProgress{}, testNow)
 
 	require.NoError(t, err)
 	assert.Empty(t, pbChallenges)
 }
 
 func TestChallengesToProto_Nil(t *testing.T) {
-	_, err := ChallengesToProto(nil, nil)
+	_, err := ChallengesToProto(nil, nil, testNow)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "challenges cannot be nil")
@@ -352,11 +378,11 @@ func TestGoalToProto_WithClaimedProgress(t *testing.T) {
 		ID:          "goal-1",
 		Name:        "Test Goal",
 		Description: "Test description",
-		Type:        domain.GoalTypeAbsolute,
 		Requirement: domain.Requirement{
-			StatCode:    "kills",
-			Operator:    ">=",
-			TargetValue: 10,
+			StatCode:     "kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeItem),
@@ -379,7 +405,7 @@ func TestGoalToProto_WithClaimedProgress(t *testing.T) {
 		},
 	}
 
-	pbGoal, err := GoalToProto(goal, userProgress)
+	pbGoal, err := GoalToProto(goal, userProgress, testNow)
 
 	require.NoError(t, err)
 	assert.Equal(t, string(domain.GoalStatusClaimed), pbGoal.Status)
@@ -392,11 +418,11 @@ func TestGoalToProto_WithPrerequisites(t *testing.T) {
 		ID:          "goal-2",
 		Name:        "Goal 2",
 		Description: "Second goal",
-		Type:        domain.GoalTypeAbsolute,
 		Requirement: domain.Requirement{
-			StatCode:    "level",
-			Operator:    ">=",
-			TargetValue: 5,
+			StatCode:     "level",
+			Operator:     ">=",
+			TargetValue:  5,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeWallet),
@@ -406,10 +432,131 @@ func TestGoalToProto_WithPrerequisites(t *testing.T) {
 		Prerequisites: []string{"goal-1"},
 	}
 
-	pbGoal, err := GoalToProto(goal, map[string]*domain.UserGoalProgress{})
+	pbGoal, err := GoalToProto(goal, map[string]*domain.UserGoalProgress{}, testNow)
 
 	require.NoError(t, err)
 	assert.Len(t, pbGoal.Prerequisites, 1)
 	assert.Equal(t, "goal-1", pbGoal.Prerequisites[0])
 	assert.True(t, pbGoal.Locked) // Has prerequisites but no progress
+}
+
+func TestGoalToProto_WithRotation(t *testing.T) {
+	goal := &domain.Goal{
+		ID:          "daily-goal",
+		Name:        "Daily Kill Goal",
+		Description: "Get 10 kills today",
+		Requirement: domain.Requirement{
+			StatCode:     "kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
+		},
+		Reward: domain.Reward{
+			Type:     string(domain.RewardTypeItem),
+			RewardID: "loot_box",
+			Quantity: 1,
+		},
+		Rotation: &domain.RotationConfig{
+			Enabled:  true,
+			Type:     domain.RotationTypeGlobal,
+			Schedule: domain.RotationScheduleDaily,
+			OnExpiry: domain.OnExpiryConfig{
+				ResetProgress: true,
+			},
+		},
+	}
+
+	// now = June 15 14:00 UTC, so expires_at = June 16 00:00 UTC
+	now := time.Date(2025, 6, 15, 14, 0, 0, 0, time.UTC)
+
+	userProgress := map[string]*domain.UserGoalProgress{
+		"daily-goal": {
+			UserID:    "user123",
+			GoalID:    "daily-goal",
+			Progress:  5,
+			Status:    domain.GoalStatusInProgress,
+			UpdatedAt: time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC), // same day
+		},
+	}
+
+	pbGoal, err := GoalToProto(goal, userProgress, now)
+
+	require.NoError(t, err)
+	assert.Equal(t, int32(5), pbGoal.Progress)
+	assert.Equal(t, string(domain.GoalStatusInProgress), pbGoal.Status)
+	assert.Equal(t, "2025-06-16T00:00:00Z", pbGoal.ExpiresAt)
+	assert.True(t, pbGoal.ExpiresInSeconds > 0)
+}
+
+func TestGoalToProto_RotatedGoalShowsReset(t *testing.T) {
+	goal := &domain.Goal{
+		ID:          "daily-goal",
+		Name:        "Daily Kill Goal",
+		Description: "Get 10 kills today",
+		Requirement: domain.Requirement{
+			StatCode:     "kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
+		},
+		Reward: domain.Reward{
+			Type:     string(domain.RewardTypeItem),
+			RewardID: "loot_box",
+			Quantity: 1,
+		},
+		Rotation: &domain.RotationConfig{
+			Enabled:  true,
+			Type:     domain.RotationTypeGlobal,
+			Schedule: domain.RotationScheduleDaily,
+			OnExpiry: domain.OnExpiryConfig{
+				ResetProgress: true,
+			},
+		},
+	}
+
+	// now = June 15 14:00 UTC; progress was last updated yesterday
+	now := time.Date(2025, 6, 15, 14, 0, 0, 0, time.UTC)
+
+	userProgress := map[string]*domain.UserGoalProgress{
+		"daily-goal": {
+			UserID:    "user123",
+			GoalID:    "daily-goal",
+			Progress:  8,
+			Status:    domain.GoalStatusInProgress,
+			UpdatedAt: time.Date(2025, 6, 14, 22, 0, 0, 0, time.UTC), // yesterday
+		},
+	}
+
+	pbGoal, err := GoalToProto(goal, userProgress, now)
+
+	require.NoError(t, err)
+	// Rotation + reset_progress → displayed as reset
+	assert.Equal(t, int32(0), pbGoal.Progress)
+	assert.Equal(t, string(domain.GoalStatusNotStarted), pbGoal.Status)
+	assert.Equal(t, "2025-06-16T00:00:00Z", pbGoal.ExpiresAt)
+}
+
+func TestGoalToProto_NoRotation_NoExpiryFields(t *testing.T) {
+	goal := &domain.Goal{
+		ID:          "goal-1",
+		Name:        "Static Goal",
+		Description: "No rotation",
+		Requirement: domain.Requirement{
+			StatCode:     "kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
+		},
+		Reward: domain.Reward{
+			Type:     string(domain.RewardTypeItem),
+			RewardID: "sword",
+			Quantity: 1,
+		},
+	}
+
+	pbGoal, err := GoalToProto(goal, map[string]*domain.UserGoalProgress{}, testNow)
+
+	require.NoError(t, err)
+	assert.Empty(t, pbGoal.ExpiresAt)
+	assert.Equal(t, int32(0), pbGoal.ExpiresInSeconds)
 }

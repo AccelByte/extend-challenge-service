@@ -17,13 +17,13 @@ func createGoalWithPrereqs(id string, prereqs []string) *domain.Goal {
 		Name:          "Test Goal",
 		Description:   "Test goal with prerequisites",
 		ChallengeID:   "test-challenge",
-		Type:          domain.GoalTypeAbsolute,
 		EventSource:   domain.EventSourceStatistic,
 		Prerequisites: prereqs,
 		Requirement: domain.Requirement{
-			StatCode:    "kills",
-			Operator:    ">=",
-			TargetValue: 10,
+			StatCode:     "kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeItem),

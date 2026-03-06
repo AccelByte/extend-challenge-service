@@ -15,6 +15,7 @@ import (
 	"github.com/AccelByte/extend-challenge-common/pkg/domain"
 	"github.com/AccelByte/extend-challenge-common/pkg/errors"
 	"github.com/AccelByte/extend-challenge-common/pkg/repository"
+	"github.com/AccelByte/extend-challenge-common/pkg/rotation"
 
 	"github.com/sirupsen/logrus"
 )
@@ -257,7 +258,7 @@ func RandomSelectGoals(
 			Namespace:   namespace,
 			IsActive:    true,
 			AssignedAt:  &now,
-			ExpiresAt:   nil, // M4: no rotation yet
+			ExpiresAt:   rotation.CalculateNextExpiresAt(goalCache.GetGoalByID(goalID), now),
 			Progress:    0,
 			Status:      domain.GoalStatusNotStarted,
 		}
@@ -500,7 +501,7 @@ func BatchSelectGoals(
 			Namespace:   namespace,
 			IsActive:    true,
 			AssignedAt:  &now,
-			ExpiresAt:   nil, // M4: no rotation yet
+			ExpiresAt:   rotation.CalculateNextExpiresAt(goalCache.GetGoalByID(goalID), now),
 			Progress:    0,
 			Status:      domain.GoalStatusNotStarted,
 		}
@@ -738,7 +739,7 @@ func buildGoalDetails(
 			Target:      goal.Requirement.TargetValue,
 			IsActive:    true,
 			AssignedAt:  assignedAt,
-			ExpiresAt:   nil, // M4: no rotation yet
+			ExpiresAt:   rotation.CalculateNextExpiresAt(goal, time.Now().UTC()),
 		})
 	}
 

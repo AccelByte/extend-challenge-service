@@ -131,8 +131,8 @@ func TestMapErrorToGRPCStatus_SentinelErrDatabaseError(t *testing.T) {
 	assert.Equal(t, codes.Internal, st.Code())
 }
 
-func TestMapErrorToGRPCStatus_SentinelErrInvalidGoalType(t *testing.T) {
-	grpcErr := MapErrorToGRPCStatus(ErrInvalidGoalType)
+func TestMapErrorToGRPCStatus_SentinelErrInvalidProgressMode(t *testing.T) {
+	grpcErr := MapErrorToGRPCStatus(ErrInvalidProgressMode)
 
 	st, ok := status.FromError(grpcErr)
 	assert.True(t, ok)

@@ -19,6 +19,9 @@ CREATE TABLE user_goal_progress (
     -- M5: System rotation control (added now for forward compatibility)
     expires_at TIMESTAMP NULL,
 
+    -- M5: Baseline stat value for relative progress (NULL = not yet initialized)
+    baseline_value INT NULL,
+
     PRIMARY KEY (user_id, goal_id),
 
     CONSTRAINT check_status CHECK (status IN ('not_started', 'in_progress', 'completed', 'claimed')),
@@ -61,3 +64,4 @@ COMMENT ON COLUMN user_goal_progress.claimed_at IS 'Timestamp when reward was gr
 COMMENT ON COLUMN user_goal_progress.is_active IS 'M3: Whether goal is assigned to user (controls event processing)';
 COMMENT ON COLUMN user_goal_progress.assigned_at IS 'M3: When goal was assigned to user';
 COMMENT ON COLUMN user_goal_progress.expires_at IS 'M5: When assignment expires (NULL = permanent)';
+COMMENT ON COLUMN user_goal_progress.baseline_value IS 'M5: Stat value at goal activation for relative progress (NULL = absolute mode or not yet initialized)';

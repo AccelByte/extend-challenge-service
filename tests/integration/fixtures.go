@@ -185,3 +185,28 @@ func findSelectedGoal(goals []*pb.SelectedGoal, goalID string) *pb.SelectedGoal 
 	}
 	return nil
 }
+
+// seedRotationGoalWithStaleUpdatedAt inserts a goal with specific progress, baseline, and updatedAt (M5 helper)
+func seedRotationGoalWithStaleUpdatedAt(
+	t *testing.T, db *sql.DB,
+	userID, goalID, challengeID string,
+	progress int, baseline *int, status string,
+	updatedAt time.Time,
+) {
+	t.Helper()
+
+	var baselineSQL interface{}
+	if baseline != nil {
+		baselineSQL = *baseline
+	}
+
+	_, err := db.Exec(`
+		INSERT INTO user_goal_progress
+		(user_id, goal_id, challenge_id, namespace, progress, status, is_active, assigned_at, baseline_value, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $7, $7)
+	`, userID, goalID, challengeID, "test-namespace", progress, status, updatedAt, baselineSQL)
+
+	if err != nil {
+		t.Fatalf("Failed to seed rotation goal: %v", err)
+	}
+}

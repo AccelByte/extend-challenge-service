@@ -340,6 +340,43 @@
           }
         ]
       }
+    },
+    "/v1/challenges/{challengeId}/rotation": {
+      "get": {
+        "summary": "Get rotation status",
+        "description": "Get rotation schedule and current period information for a challenge",
+        "operationId": "Service_GetRotationStatus",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/serviceGetRotationStatusResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "challengeId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Challenges"
+        ],
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
     }
   },
   "definitions": {
@@ -465,6 +502,18 @@
         }
       }
     },
+    "serviceGetRotationStatusResponse": {
+      "type": "object",
+      "properties": {
+        "challengeId": {
+          "type": "string"
+        },
+        "rotation": {
+          "$ref": "#/definitions/serviceRotationInfo"
+        }
+      },
+      "title": "M5: Rotation status response"
+    },
     "serviceGoal": {
       "type": "object",
       "properties": {
@@ -507,6 +556,13 @@
         },
         "isActive": {
           "type": "boolean"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "expiresInSeconds": {
+          "type": "integer",
+          "format": "int32"
         }
       }
     },
@@ -597,6 +653,43 @@
           "format": "int32"
         }
       }
+    },
+    "serviceRotationInfo": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "type": {
+          "type": "string"
+        },
+        "schedule": {
+          "type": "string"
+        },
+        "currentPeriod": {
+          "$ref": "#/definitions/serviceRotationPeriod"
+        },
+        "nextPeriod": {
+          "$ref": "#/definitions/serviceRotationPeriod"
+        }
+      },
+      "title": "M5: Rotation configuration and period info"
+    },
+    "serviceRotationPeriod": {
+      "type": "object",
+      "properties": {
+        "startTime": {
+          "type": "string"
+        },
+        "endTime": {
+          "type": "string"
+        },
+        "expiresInSeconds": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      "title": "M5: A rotation time period"
     },
     "serviceSelectedGoal": {
       "type": "object",

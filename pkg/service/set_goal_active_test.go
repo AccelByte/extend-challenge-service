@@ -31,12 +31,12 @@ func TestSetGoalActive_ActivateGoal_Success(t *testing.T) {
 		ChallengeID: challengeID,
 		Name:        "Defeat 10 Enemies",
 		Description: "Defeat 10 enemies in combat",
-		Type:        domain.GoalTypeAbsolute,
 		EventSource: domain.EventSourceStatistic,
 		Requirement: domain.Requirement{
-			StatCode:    "enemy_kills",
-			Operator:    ">=",
-			TargetValue: 10,
+			StatCode:     "enemy_kills",
+			Operator:     ">=",
+			TargetValue:  10,
+			ProgressMode: domain.ProgressModeAbsolute,
 		},
 		Reward: domain.Reward{
 			Type:     string(domain.RewardTypeItem),

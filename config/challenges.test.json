@@ -108,6 +108,71 @@
           "prerequisites": []
         }
       ]
+    },
+    {
+      "challengeId": "rotation-challenge",
+      "name": "Rotation Challenge",
+      "description": "Time-based rotation goals",
+      "goals": [
+        {
+          "goalId": "daily-kills-relative",
+          "name": "Daily Kills",
+          "description": "Get 10 kills today",
+          "type": "absolute",
+          "eventSource": "statistic",
+          "defaultAssigned": true,
+          "requirement": {
+            "statCode": "kills",
+            "operator": ">=",
+            "targetValue": 10,
+            "progressMode": "relative"
+          },
+          "reward": {
+            "type": "WALLET",
+            "rewardId": "GOLD",
+            "quantity": 50
+          },
+          "prerequisites": [],
+          "rotation": {
+            "enabled": true,
+            "type": "global",
+            "schedule": "daily",
+            "onExpiry": {
+              "resetProgress": true,
+              "allowReselection": false
+            }
+          }
+        },
+        {
+          "goalId": "weekly-wins-no-reset",
+          "name": "Weekly Wins",
+          "description": "Win 5 matches this week",
+          "type": "absolute",
+          "eventSource": "statistic",
+          "defaultAssigned": true,
+          "requirement": {
+            "statCode": "wins",
+            "operator": ">=",
+            "targetValue": 5,
+            "progressMode": "relative"
+          },
+          "reward": {
+            "type": "WALLET",
+            "rewardId": "GEMS",
+            "quantity": 100
+          },
+          "prerequisites": [],
+          "rotation": {
+            "enabled": true,
+            "type": "global",
+            "schedule": "weekly",
+            "onExpiry": {
+              "resetProgress": false,
+              "allowReselection": false
+            }
+          }
+        }
+      ]
     }
   ]
 }

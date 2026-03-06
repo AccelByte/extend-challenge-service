@@ -8,6 +8,7 @@ import (
 	pb "extend-challenge-service/pkg/pb"
 
 	"github.com/AccelByte/extend-challenge-common/pkg/domain"
+	"github.com/AccelByte/extend-challenge-common/pkg/rotation"
 )
 
 // Object pools for protobuf message reuse (reduces allocations by ~9.3%)
@@ -40,7 +41,8 @@ var (
 // ChallengeToProto converts domain Challenge to protobuf Challenge (Decision Q2)
 // Returns error for validation failures (early validation, Decision Q2a)
 // Uses object pooling to reduce allocations
-func ChallengeToProto(challenge *domain.Challenge, userProgress map[string]*domain.UserGoalProgress) (*pb.Challenge, error) {
+// M5: now parameter used for rotation display calculations
+func ChallengeToProto(challenge *domain.Challenge, userProgress map[string]*domain.UserGoalProgress, now time.Time) (*pb.Challenge, error) {
 	if challenge == nil {
 		return nil, fmt.Errorf("challenge cannot be nil")
 	}
@@ -58,7 +60,7 @@ func ChallengeToProto(challenge *domain.Challenge, userProgress map[string]*doma
 	}
 
 	for _, goal := range challenge.Goals {
-		pbGoal, err := GoalToProto(goal, userProgress)
+		pbGoal, err := GoalToProto(goal, userProgress, now)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert goal %s: %w", goal.ID, err)
 		}
@@ -71,7 +73,8 @@ func ChallengeToProto(challenge *domain.Challenge, userProgress map[string]*doma
 // GoalToProto converts domain Goal to protobuf Goal with user progress (Decision Q2)
 // Computes progress for daily goals from completed_at timestamp (Decision FQ2)
 // Uses object pooling to reduce allocations
-func GoalToProto(goal *domain.Goal, userProgress map[string]*domain.UserGoalProgress) (*pb.Goal, error) {
+// M5: now parameter used for rotation display calculations (expires_at, displayed progress)
+func GoalToProto(goal *domain.Goal, userProgress map[string]*domain.UserGoalProgress, now time.Time) (*pb.Goal, error) {
 	if goal == nil {
 		return nil, fmt.Errorf("goal cannot be nil")
 	}
@@ -107,23 +110,7 @@ func GoalToProto(goal *domain.Goal, userProgress map[string]*domain.UserGoalProg
 	pbGoal.Prerequisites = append(pbGoal.Prerequisites, goal.Prerequisites...)
 
 	// Set progress fields from user progress (if exists)
-	if exists && progress != nil {
-		pbGoal.Progress = ComputeProgress(goal, progress)
-		pbGoal.Status = string(progress.Status)
-		pbGoal.Locked = false // Will be computed by PrerequisiteChecker
-		pbGoal.IsActive = progress.IsActive
-
-		// Format timestamps using AppendFormat to reuse buffer (reduces allocations)
-		var buf []byte
-		if progress.CompletedAt != nil && !progress.CompletedAt.IsZero() {
-			buf = progress.CompletedAt.UTC().AppendFormat(buf[:0], time.RFC3339)
-			pbGoal.CompletedAt = string(buf)
-		}
-		if progress.ClaimedAt != nil && !progress.ClaimedAt.IsZero() {
-			buf = progress.ClaimedAt.UTC().AppendFormat(buf[:0], time.RFC3339)
-			pbGoal.ClaimedAt = string(buf)
-		}
-	} else {
+	if !exists || progress == nil {
 		// No progress yet
 		pbGoal.Progress = 0
 		pbGoal.Status = string(domain.GoalStatusNotStarted)
@@ -131,37 +118,44 @@ func GoalToProto(goal *domain.Goal, userProgress map[string]*domain.UserGoalProg
 		pbGoal.CompletedAt = ""
 		pbGoal.ClaimedAt = ""
 		pbGoal.IsActive = false
+	} else {
+		// M5: Apply display rotation to get the user-visible progress and status
+		displayedProgress, displayedStatus, _ := rotation.ApplyDisplayRotation(progress, goal, now)
+		// #nosec G115 - Progress values are validated at config load time, safe to convert
+		pbGoal.Progress = int32(displayedProgress)
+		pbGoal.Status = string(displayedStatus)
+		pbGoal.Locked = false // Will be computed by PrerequisiteChecker
+		pbGoal.IsActive = progress.IsActive
+		pbGoal.CompletedAt = formatTimestamp(progress.CompletedAt)
+		pbGoal.ClaimedAt = formatTimestamp(progress.ClaimedAt)
+	}
+
+	// M5: Set expiry fields from rotation config
+	expiresAt := rotation.CalculateNextExpiresAt(goal, now)
+	if expiresAt != nil {
+		pbGoal.ExpiresAt = expiresAt.UTC().Format(time.RFC3339)
+		seconds := int32(expiresAt.Sub(now).Seconds())
+		if seconds < 0 {
+			seconds = 0
+		}
+		pbGoal.ExpiresInSeconds = seconds
+	} else {
+		pbGoal.ExpiresAt = ""
+		pbGoal.ExpiresInSeconds = 0
 	}
 
 	return pbGoal, nil
 }
 
-// ComputeProgress computes the progress value for display (Decision FQ2)
-// For daily goals: Returns 1 if completed today, 0 otherwise
-// For other goals: Returns the actual progress value from DB
+// ComputeProgress computes the progress value for display.
+// M5: Uses CalculateDisplayedProgress for rotation-aware relative mode support.
 func ComputeProgress(goal *domain.Goal, progress *domain.UserGoalProgress) int32 {
 	if goal == nil || progress == nil {
 		return 0
 	}
 
-	// Daily goals: Check if completed today (Decision Q9, FQ2)
-	if goal.Type == domain.GoalTypeDaily {
-		// If completed_at is today (UTC), show progress = 1
-		// Compare dates directly without string allocation
-		if progress.CompletedAt != nil && !progress.CompletedAt.IsZero() {
-			cy, cm, cd := progress.CompletedAt.UTC().Date()
-			ty, tm, td := time.Now().UTC().Date()
-			if cy == ty && cm == tm && cd == td {
-				return 1
-			}
-		}
-		// Not completed today
-		return 0
-	}
-
-	// Absolute and increment goals: Return actual progress from DB
 	// #nosec G115 - Progress values are validated at config load time, safe to convert
-	return int32(progress.Progress)
+	return int32(rotation.CalculateDisplayedProgress(progress, goal))
 }
 
 // RequirementToProto converts domain Requirement to protobuf Requirement
@@ -204,14 +198,15 @@ func RewardToProto(reward *domain.Reward) (*pb.Reward, error) {
 }
 
 // ChallengesToProto converts a slice of domain Challenges to protobuf Challenges
-func ChallengesToProto(challenges []*domain.Challenge, userProgress map[string]*domain.UserGoalProgress) ([]*pb.Challenge, error) {
+// M5: now parameter used for rotation display calculations
+func ChallengesToProto(challenges []*domain.Challenge, userProgress map[string]*domain.UserGoalProgress, now time.Time) ([]*pb.Challenge, error) {
 	if challenges == nil {
 		return nil, fmt.Errorf("challenges cannot be nil")
 	}
 
 	pbChallenges := make([]*pb.Challenge, 0, len(challenges))
 	for _, challenge := range challenges {
-		pbChallenge, err := ChallengeToProto(challenge, userProgress)
+		pbChallenge, err := ChallengeToProto(challenge, userProgress, now)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert challenge %s: %w", challenge.ID, err)
 		}
@@ -271,4 +266,13 @@ func ReturnRewardToPool(reward *pb.Reward) {
 		return
 	}
 	rewardPool.Put(reward)
+}
+
+// formatTimestamp formats a nullable time pointer to RFC3339 string.
+// Returns empty string for nil or zero times.
+func formatTimestamp(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }

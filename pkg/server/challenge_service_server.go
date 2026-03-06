@@ -18,8 +18,10 @@ import (
 
 	"github.com/AccelByte/extend-challenge-common/pkg/cache"
 	"github.com/AccelByte/extend-challenge-common/pkg/client"
+	commonDomain "github.com/AccelByte/extend-challenge-common/pkg/domain"
 	"github.com/AccelByte/extend-challenge-common/pkg/errors"
 	"github.com/AccelByte/extend-challenge-common/pkg/repository"
+	"github.com/AccelByte/extend-challenge-common/pkg/rotation"
 
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -103,9 +105,11 @@ func (s *ChallengeServiceServer) GetUserChallenges(
 	}
 
 	// Convert to protobuf response
+	// M5: Pass current time for rotation display calculations
+	now := time.Now().UTC()
 	protoChallenges := make([]*pb.Challenge, 0, len(challengesWithProgress))
 	for _, cwp := range challengesWithProgress {
-		protoChallenge, err := mapper.ChallengeToProto(cwp.Challenge, cwp.UserProgress)
+		protoChallenge, err := mapper.ChallengeToProto(cwp.Challenge, cwp.UserProgress, now)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{
 				"user_id":      userID,
@@ -528,6 +532,80 @@ func (s *ChallengeServiceServer) ClaimGoalReward(
 		Reward:    protoReward,
 		ClaimedAt: result.ClaimedAt.Format(time.RFC3339),
 	}, nil
+}
+
+// GetRotationStatus returns rotation schedule and current period info for a challenge (M5)
+func (s *ChallengeServiceServer) GetRotationStatus(
+	ctx context.Context,
+	req *pb.GetRotationStatusRequest,
+) (*pb.GetRotationStatusResponse, error) {
+	if req.ChallengeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "challenge_id is required")
+	}
+
+	// Look up challenge in cache
+	challenge := s.goalCache.GetChallengeByChallengeID(req.ChallengeId)
+	if challenge == nil {
+		return nil, status.Errorf(codes.NotFound, "challenge not found: %s", req.ChallengeId)
+	}
+
+	// Find the first goal with rotation enabled (all goals in a challenge share the same rotation config)
+	var rotationCfg *commonDomain.RotationConfig
+	for _, goal := range challenge.Goals {
+		if goal.Rotation != nil && goal.Rotation.Enabled {
+			rotationCfg = goal.Rotation
+			break
+		}
+	}
+
+	// Build rotation info
+	now := time.Now().UTC()
+	rotationInfo := buildRotationInfo(rotationCfg, now)
+
+	return &pb.GetRotationStatusResponse{
+		ChallengeId: req.ChallengeId,
+		Rotation:    rotationInfo,
+	}, nil
+}
+
+// buildRotationInfo constructs a RotationInfo proto from config and current time.
+func buildRotationInfo(cfg *commonDomain.RotationConfig, now time.Time) *pb.RotationInfo {
+	if cfg == nil {
+		return &pb.RotationInfo{Enabled: false}
+	}
+
+	info := &pb.RotationInfo{
+		Enabled:  true,
+		Type:     string(cfg.Type),
+		Schedule: string(cfg.Schedule),
+	}
+
+	currentStart := rotation.CalculateLastRotationBoundary(cfg.Schedule, now)
+	currentEnd := rotation.CalculateNextRotationBoundary(cfg.Schedule, now)
+	if currentStart.IsZero() || currentEnd.IsZero() {
+		return info
+	}
+
+	currentExpiresIn := int32(currentEnd.Sub(now).Seconds())
+	if currentExpiresIn < 0 {
+		currentExpiresIn = 0
+	}
+	info.CurrentPeriod = &pb.RotationPeriod{
+		StartTime:        currentStart.Format(time.RFC3339),
+		EndTime:          currentEnd.Format(time.RFC3339),
+		ExpiresInSeconds: currentExpiresIn,
+	}
+
+	// Next period (starts when current ends)
+	nextEnd := rotation.CalculateNextRotationBoundary(cfg.Schedule, currentEnd)
+	if !nextEnd.IsZero() {
+		info.NextPeriod = &pb.RotationPeriod{
+			StartTime: currentEnd.Format(time.RFC3339),
+			EndTime:   nextEnd.Format(time.RFC3339),
+		}
+	}
+
+	return info
 }
 
 // HealthCheck verifies service and database health

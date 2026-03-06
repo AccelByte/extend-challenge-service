@@ -748,6 +748,48 @@ func TestRunCleanupLoop_JitterShortInterval(t *testing.T) {
 	}
 }
 
+func TestRunCleanupCycle_ConcurrentWithUpsert(t *testing.T) {
+	resetMetrics()
+
+	m := &mockRepo{
+		results: []mockCleanerResult{
+			{deleted: 100, err: nil},
+		},
+	}
+	cfg := CleanupConfig{
+		Enabled:            true,
+		RetentionDays:      7,
+		BatchSize:          1000,
+		MaxBatchesPerCycle: 1,
+	}
+
+	var wg sync.WaitGroup
+
+	// One goroutine runs cleanup cycle
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		runCleanupCycle(context.Background(), m, cfg, "test-ns", cfg.MaxBatchesPerCycle, testLogger())
+	}()
+
+	// Another goroutine calls BatchUpsertProgressWithCOPY on the same mock
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = m.BatchUpsertProgressWithCOPY(context.Background(), []repository.CopyRow{
+			{
+				UserID:      "user-1",
+				GoalID:      "goal-1",
+				ChallengeID: "ch1",
+				Namespace:   "test-ns",
+			},
+		})
+	}()
+
+	wg.Wait()
+	// Test passes if no race detected and no panic occurred
+}
+
 func TestRandomJitter(t *testing.T) {
 	// Zero/negative max should return 0
 	if j := randomJitter(0); j != 0 {

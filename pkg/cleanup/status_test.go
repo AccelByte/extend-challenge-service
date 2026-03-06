@@ -1,6 +1,7 @@
 package cleanup
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -91,6 +92,40 @@ func TestCleanupStatus_IsAlive_GraceBoundary(t *testing.T) {
 	outsideGrace := NewCleanupStatusWithCreatedAt(time.Now().Add(-(grace + 50*time.Millisecond)))
 	if outsideGrace.IsAlive(threshold) {
 		t.Error("should not be alive just outside 2*threshold boundary")
+	}
+}
+
+func TestCleanupStatus_ConcurrentHeartbeatAndIsAlive(t *testing.T) {
+	s := NewCleanupStatus()
+	var wg sync.WaitGroup
+
+	// 10 goroutines calling RecordHeartbeat
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 100 {
+				s.RecordHeartbeat()
+			}
+		}()
+	}
+
+	// 10 goroutines calling IsAlive
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 100 {
+				s.IsAlive(time.Hour)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// After all heartbeats, should be alive
+	if !s.IsAlive(time.Second) {
+		t.Error("should be alive after concurrent heartbeats")
 	}
 }
 

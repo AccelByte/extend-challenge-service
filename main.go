@@ -267,6 +267,13 @@ func main() {
 	cleanupCfg := cleanup.NewCleanupConfigFromEnv()
 	cleanupStatus := cleanup.NewCleanupStatus()
 
+	// When cleanup is disabled, pass zero interval so the health check skips
+	// cleanup liveness monitoring (the s.cleanupInterval > 0 guard handles this).
+	cleanupInterval := cleanupCfg.Interval
+	if !cleanupCfg.Enabled {
+		cleanupInterval = 0
+	}
+
 	// Create ChallengeServiceServer with all dependencies
 	challengeServiceServer := server.NewChallengeServiceServer(
 		goalCache,
@@ -275,7 +282,7 @@ func main() {
 		db,
 		namespace,
 		cleanupStatus,
-		cleanupCfg.Interval,
+		cleanupInterval,
 	)
 
 	// Register Challenge Service with gRPC server

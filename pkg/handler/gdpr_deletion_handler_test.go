@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -441,6 +442,86 @@ func TestGDPRDeletionHandler_SuccessContentType(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), `"rowsDeleted":2`)
 	mockRepo.AssertExpectations(t)
 	mockValidator.AssertExpectations(t)
+}
+
+func TestGDPRDeletionHandler_ConcurrentDeletions(t *testing.T) {
+	mockRepo := &MockGDPRGoalRepository{}
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "concurrent-user").Return(int64(3), nil).Maybe()
+
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", false, nil, testGDPRLogger())
+
+	var wg sync.WaitGroup
+	results := make([]int, 10)
+
+	for i := range 10 {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			req := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
+			req.Header.Set("x-mock-user-id", "concurrent-user")
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			results[idx] = rr.Code
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Count results: at least one 200, rest should be 200 or 429
+	ok := 0
+	rateLimited := 0
+	for _, code := range results {
+		switch code {
+		case http.StatusOK:
+			ok++
+		case http.StatusTooManyRequests:
+			rateLimited++
+		default:
+			t.Errorf("unexpected status code: %d", code)
+		}
+	}
+
+	if ok < 1 {
+		t.Errorf("expected at least 1 OK response, got %d", ok)
+	}
+	if ok+rateLimited != 10 {
+		t.Errorf("expected 10 total responses (OK + 429), got %d", ok+rateLimited)
+	}
+}
+
+func TestGDPRDeletionHandler_MalformedAuthHeader(t *testing.T) {
+	mockRepo := &MockGDPRGoalRepository{}
+	handler := NewGDPRDeletionHandler(context.Background(), mockRepo, "test-namespace", true, nil, testGDPRLogger())
+
+	tests := []struct {
+		name   string
+		header string
+	}{
+		{"no space", "Bearertoken"},
+		{"empty token", "Bearer "},
+		{"empty header", ""},
+		{"lowercase bearer", "bearer token"},
+		{"spaces only", "   "},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodDelete, "/v1/users/me/data", nil)
+			if tc.header != "" {
+				req.Header.Set("Authorization", tc.header)
+			}
+			rr := httptest.NewRecorder()
+
+			handler.ServeHTTP(rr, req)
+
+			assert.Equal(t, http.StatusUnauthorized, rr.Code, "header %q should be rejected", tc.header)
+
+			var errResp map[string]string
+			err := json.Unmarshal(rr.Body.Bytes(), &errResp)
+			assert.NoError(t, err)
+			assert.Equal(t, "UNAUTHORIZED", errResp["errorCode"])
+		})
+	}
 }
 
 func TestGDPRDeletionHandler_EvictionRemovesStaleEntries(t *testing.T) {

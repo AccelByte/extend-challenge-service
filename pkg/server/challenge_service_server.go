@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"extend-challenge-service/pkg/cleanup"
 	"extend-challenge-service/pkg/common"
 	"extend-challenge-service/pkg/mapper"
 	pb "extend-challenge-service/pkg/pb"
@@ -32,11 +33,13 @@ import (
 type ChallengeServiceServer struct {
 	pb.UnimplementedServiceServer
 
-	goalCache    cache.GoalCache
-	repo         repository.GoalRepository
-	rewardClient client.RewardClient
-	db           *sql.DB
-	namespace    string
+	goalCache       cache.GoalCache
+	repo            repository.GoalRepository
+	rewardClient    client.RewardClient
+	db              *sql.DB
+	namespace       string
+	cleanupStatus   *cleanup.CleanupStatus
+	cleanupInterval time.Duration
 }
 
 // NewChallengeServiceServer creates a new challenge service server
@@ -46,13 +49,17 @@ func NewChallengeServiceServer(
 	rewardClient client.RewardClient,
 	db *sql.DB,
 	namespace string,
+	cleanupStatus *cleanup.CleanupStatus,
+	cleanupInterval time.Duration,
 ) *ChallengeServiceServer {
 	return &ChallengeServiceServer{
-		goalCache:    goalCache,
-		repo:         repo,
-		rewardClient: rewardClient,
-		db:           db,
-		namespace:    namespace,
+		goalCache:       goalCache,
+		repo:            repo,
+		rewardClient:    rewardClient,
+		db:              db,
+		namespace:       namespace,
+		cleanupStatus:   cleanupStatus,
+		cleanupInterval: cleanupInterval,
 	}
 }
 
@@ -608,6 +615,43 @@ func buildRotationInfo(cfg *commonDomain.RotationConfig, now time.Time) *pb.Rota
 	return info
 }
 
+// DeleteUserData deletes all challenge progress data for the authenticated user (GDPR M6).
+// This is the gRPC implementation; HTTP traffic uses the custom GDPRDeletionHandler which
+// includes rate limiting. The gRPC path is provided for OpenAPI spec completeness.
+func (s *ChallengeServiceServer) DeleteUserData(
+	ctx context.Context,
+	_ *pb.DeleteUserDataRequest,
+) (*pb.DeleteUserDataResponse, error) {
+	userID, err := extractUserIDFromContext(ctx)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to extract user ID from context for GDPR deletion")
+		return nil, status.Error(codes.Unauthenticated, "missing or invalid authentication")
+	}
+
+	deleted, err := s.repo.DeleteUserData(ctx, s.namespace, userID)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"userId":    userID,
+			"namespace": s.namespace,
+			"error":     err,
+		}).Error("GDPR deletion via gRPC failed")
+		return nil, status.Error(codes.Internal, "failed to delete user data")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"userId":      userID,
+		"namespace":   s.namespace,
+		"rowsDeleted": deleted,
+		"audit":       true,
+		"auditAction": "gdpr_user_data_deletion",
+	}).Info("GDPR deletion via gRPC completed")
+
+	return &pb.DeleteUserDataResponse{
+		UserId:      userID,
+		RowsDeleted: deleted,
+	}, nil
+}
+
 // HealthCheck verifies service and database health
 func (s *ChallengeServiceServer) HealthCheck(
 	ctx context.Context,
@@ -620,6 +664,14 @@ func (s *ChallengeServiceServer) HealthCheck(
 	if err := s.db.PingContext(healthCtx); err != nil {
 		logrus.WithError(err).Error("Database health check failed")
 		return nil, status.Error(codes.Unavailable, "database connectivity check failed")
+	}
+
+	// Check cleanup goroutine liveness — report unhealthy if stale
+	if s.cleanupStatus != nil && s.cleanupInterval > 0 {
+		if !s.cleanupStatus.IsAlive(2 * s.cleanupInterval) {
+			logrus.Error("Cleanup goroutine stale — no heartbeat within 2x cleanup interval, reporting unhealthy")
+			return nil, status.Error(codes.Unavailable, "cleanup goroutine stale: no heartbeat within threshold")
+		}
 	}
 
 	return &pb.HealthCheckResponse{

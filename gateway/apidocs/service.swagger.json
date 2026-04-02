@@ -377,6 +377,35 @@
           }
         ]
       }
+    },
+    "/v1/users/me/data": {
+      "delete": {
+        "summary": "Delete user data (GDPR)",
+        "description": "Delete all challenge progress data for the authenticated user. Irreversible. Rate limited to 1 request per minute per user.",
+        "operationId": "Service_DeleteUserData",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/serviceDeleteUserDataResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "GDPR"
+        ],
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
     }
   },
   "definitions": {
@@ -487,6 +516,18 @@
         },
         "claimedAt": {
           "type": "string"
+        }
+      }
+    },
+    "serviceDeleteUserDataResponse": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "rowsDeleted": {
+          "type": "string",
+          "format": "int64"
         }
       }
     },

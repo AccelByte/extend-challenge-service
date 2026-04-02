@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"extend-challenge-service/pkg/cleanup"
 	"extend-challenge-service/pkg/common"
 	pb "extend-challenge-service/pkg/pb"
 	"extend-challenge-service/pkg/service"
@@ -172,6 +173,16 @@ func (m *MockGoalRepository) GetActiveGoals(ctx context.Context, userID string) 
 	return args.Get(0).([]*domain.UserGoalProgress), args.Error(1)
 }
 
+func (m *MockGoalRepository) DeleteExpiredRows(ctx context.Context, namespace string, cutoff time.Time, batchSize int) (int64, error) {
+	args := m.Called(ctx, namespace, cutoff, batchSize)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockGoalRepository) DeleteUserData(ctx context.Context, namespace string, userID string) (int64, error) {
+	args := m.Called(ctx, namespace, userID)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 type MockTxGoalRepository struct {
 	mock.Mock
 }
@@ -292,6 +303,16 @@ func (m *MockTxGoalRepository) GetActiveGoals(ctx context.Context, userID string
 	return args.Get(0).([]*domain.UserGoalProgress), args.Error(1)
 }
 
+func (m *MockTxGoalRepository) DeleteExpiredRows(ctx context.Context, namespace string, cutoff time.Time, batchSize int) (int64, error) {
+	args := m.Called(ctx, namespace, cutoff, batchSize)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockTxGoalRepository) DeleteUserData(ctx context.Context, namespace string, userID string) (int64, error) {
+	args := m.Called(ctx, namespace, userID)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 type MockRewardClient struct {
 	mock.Mock
 }
@@ -370,7 +391,7 @@ func TestGetUserChallenges_Success(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Create test data
 	challenge := &domain.Challenge{
@@ -442,7 +463,7 @@ func TestGetUserChallenges_NoAuthContext(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := context.Background()
 	req := &pb.GetChallengesRequest{}
@@ -463,7 +484,7 @@ func TestGetUserChallenges_ServiceError(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Create a challenge so GetUserProgress is called
 	challenge := &domain.Challenge{
@@ -499,7 +520,7 @@ func TestInitializePlayer_Success(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Create test data - goals with default_assigned = true
 	defaultGoals := []*domain.Goal{
@@ -564,7 +585,7 @@ func TestInitializePlayer_NoAuthContext(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := context.Background() // No auth context
 	req := &pb.InitializeRequest{}
@@ -585,7 +606,7 @@ func TestInitializePlayer_ServiceError(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Mock service error
 	mockCache.On("GetGoalsWithDefaultAssigned").Return([]*domain.Goal{
@@ -627,7 +648,7 @@ func TestSetGoalActive_ActivateGoal(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Create test goal
 	goal := &domain.Goal{
@@ -688,7 +709,7 @@ func TestSetGoalActive_DeactivateGoal(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	goal := &domain.Goal{
 		ID:          "active-quest",
@@ -737,7 +758,7 @@ func TestSetGoalActive_NoAuthContext(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := context.Background() // No auth context
 	req := &pb.SetGoalActiveRequest{
@@ -762,7 +783,7 @@ func TestSetGoalActive_MissingChallengeID(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := createAuthContext("user123", "test-namespace")
 	req := &pb.SetGoalActiveRequest{
@@ -788,7 +809,7 @@ func TestSetGoalActive_MissingGoalID(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := createAuthContext("user123", "test-namespace")
 	req := &pb.SetGoalActiveRequest{
@@ -814,7 +835,7 @@ func TestSetGoalActive_ServiceError(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Mock service error
 	mockCache.On("GetGoalByID", "goal1").Return(nil) // Goal not found
@@ -846,7 +867,7 @@ func TestClaimGoalReward_Success(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Create test data
 	goal := &domain.Goal{
@@ -920,7 +941,7 @@ func TestClaimGoalReward_NoAuthContext(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := context.Background()
 	req := &pb.ClaimRewardRequest{
@@ -944,7 +965,7 @@ func TestClaimGoalReward_MissingChallengeID(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := createAuthContext("user123", "test-namespace")
 	req := &pb.ClaimRewardRequest{
@@ -969,7 +990,7 @@ func TestClaimGoalReward_MissingGoalID(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := createAuthContext("user123", "test-namespace")
 	req := &pb.ClaimRewardRequest{
@@ -994,7 +1015,7 @@ func TestClaimGoalReward_GoalNotFound(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	mockCache.On("GetGoalByID", "goal1").Return(nil) // Goal not found
 
@@ -1023,7 +1044,7 @@ func TestClaimGoalReward_GoalNotCompleted(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	goal := &domain.Goal{
 		ID:          "goal1",
@@ -1087,7 +1108,7 @@ func TestClaimGoalReward_AlreadyClaimed(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	goal := &domain.Goal{
 		ID:          "goal1",
@@ -1156,7 +1177,7 @@ func TestHealthCheck_Healthy(t *testing.T) {
 	// Expect ping
 	mock.ExpectPing()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := context.Background()
 	req := &pb.HealthCheckRequest{}
@@ -1182,7 +1203,7 @@ func TestHealthCheck_DatabaseDown(t *testing.T) {
 	// Expect ping to fail
 	mock.ExpectPing().WillReturnError(errors.New("connection refused"))
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := context.Background()
 	req := &pb.HealthCheckRequest{}
@@ -1209,7 +1230,7 @@ func TestHealthCheck_Timeout(t *testing.T) {
 	// Simulate slow database by delaying ping
 	mock.ExpectPing().WillDelayFor(3 * time.Second)
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := context.Background()
 	req := &pb.HealthCheckRequest{}
@@ -1219,6 +1240,162 @@ func TestHealthCheck_Timeout(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, resp)
 	assert.Equal(t, codes.Unavailable, status.Code(err))
+}
+
+func TestHealthCheck_StaleCleanupStatus(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, dbMock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	// Expect ping to succeed
+	dbMock.ExpectPing()
+
+	// Create CleanupStatus with old creation time so startup grace is expired
+	cleanupSt := cleanup.NewCleanupStatusWithCreatedAt(time.Now().Add(-24 * time.Hour))
+	cleanupInterval := 60 * time.Minute
+
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", cleanupSt, cleanupInterval)
+
+	ctx := context.Background()
+	req := &pb.HealthCheckRequest{}
+
+	resp, err := server.HealthCheck(ctx, req)
+
+	// Should return unhealthy — cleanup goroutine is stale
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+
+	assert.NoError(t, dbMock.ExpectationsWereMet())
+}
+
+func TestHealthCheck_CleanupStartupGrace(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, dbMock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	// Expect ping to succeed
+	dbMock.ExpectPing()
+
+	// Fresh CleanupStatus with no heartbeat — within startup grace period
+	cleanupSt := cleanup.NewCleanupStatus()
+	cleanupInterval := 60 * time.Minute
+
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", cleanupSt, cleanupInterval)
+
+	ctx := context.Background()
+	req := &pb.HealthCheckRequest{}
+
+	resp, err := server.HealthCheck(ctx, req)
+
+	// Should return healthy — within startup grace period
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, "healthy", resp.Status)
+
+	assert.NoError(t, dbMock.ExpectationsWereMet())
+}
+
+func TestHealthCheck_HealthyCleanupStatus(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, dbMock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	// Expect ping to succeed
+	dbMock.ExpectPing()
+
+	// Create CleanupStatus with a recent heartbeat
+	cleanupSt := cleanup.NewCleanupStatus()
+	cleanupSt.RecordHeartbeat()
+	cleanupInterval := 60 * time.Minute
+
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", cleanupSt, cleanupInterval)
+
+	ctx := context.Background()
+	req := &pb.HealthCheckRequest{}
+
+	resp, err := server.HealthCheck(ctx, req)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, "healthy", resp.Status)
+
+	assert.NoError(t, dbMock.ExpectationsWereMet())
+}
+
+func TestHealthCheck_CleanupStatusNonNil_ZeroInterval(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, dbMock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	dbMock.ExpectPing()
+
+	// Non-nil cleanupStatus but zero interval — cleanup check should be skipped
+	cleanupSt := cleanup.NewCleanupStatusWithCreatedAt(time.Now().Add(-24 * time.Hour))
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", cleanupSt, 0)
+
+	ctx := context.Background()
+	req := &pb.HealthCheckRequest{}
+
+	resp, err := server.HealthCheck(ctx, req)
+
+	// Should return healthy — zero interval skips cleanup check even though status is stale
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, "healthy", resp.Status)
+
+	assert.NoError(t, dbMock.ExpectationsWereMet())
+}
+
+func TestHealthCheck_CleanupRecoveryAfterHeartbeat(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, dbMock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	// Stale status (old creation, no heartbeat) — first call should fail
+	cleanupSt := cleanup.NewCleanupStatusWithCreatedAt(time.Now().Add(-24 * time.Hour))
+	cleanupInterval := 60 * time.Minute
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", cleanupSt, cleanupInterval)
+
+	ctx := context.Background()
+	req := &pb.HealthCheckRequest{}
+
+	dbMock.ExpectPing()
+	resp, err := server.HealthCheck(ctx, req)
+	assert.Error(t, err, "should be unhealthy before heartbeat")
+	assert.Nil(t, resp)
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+
+	// Record heartbeat — second call should succeed (recovery)
+	cleanupSt.RecordHeartbeat()
+
+	dbMock.ExpectPing()
+	resp, err = server.HealthCheck(ctx, req)
+	assert.NoError(t, err, "should be healthy after heartbeat")
+	assert.NotNil(t, resp)
+	assert.Equal(t, "healthy", resp.Status)
+
+	assert.NoError(t, dbMock.ExpectationsWereMet())
 }
 
 // ============================================================================
@@ -1235,7 +1412,7 @@ func TestBatchSelectGoals_Success(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Create a challenge with one goal
 	goal := &domain.Goal{
@@ -1315,7 +1492,7 @@ func TestBatchSelectGoals_NoAuthContext(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := context.Background()
 	req := &pb.BatchSelectRequest{
@@ -1339,7 +1516,7 @@ func TestBatchSelectGoals_MissingChallengeID(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := createAuthContext("user123", "test-namespace")
 	req := &pb.BatchSelectRequest{
@@ -1364,7 +1541,7 @@ func TestBatchSelectGoals_EmptyGoalIds(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := createAuthContext("user123", "test-namespace")
 	req := &pb.BatchSelectRequest{
@@ -1389,7 +1566,7 @@ func TestBatchSelectGoals_ServiceError_NotFound(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Challenge not found in cache
 	mockCache.On("GetChallengeByChallengeID", "nonexistent").Return(nil)
@@ -1423,7 +1600,7 @@ func TestRandomSelectGoals_Success(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Create a challenge with one goal (deterministic random selection)
 	goal := &domain.Goal{
@@ -1503,7 +1680,7 @@ func TestRandomSelectGoals_NoAuthContext(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := context.Background()
 	req := &pb.RandomSelectRequest{
@@ -1527,7 +1704,7 @@ func TestRandomSelectGoals_MissingChallengeID(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := createAuthContext("user123", "test-namespace")
 	req := &pb.RandomSelectRequest{
@@ -1552,7 +1729,7 @@ func TestRandomSelectGoals_InvalidCount(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := createAuthContext("user123", "test-namespace")
 	req := &pb.RandomSelectRequest{
@@ -1577,7 +1754,7 @@ func TestRandomSelectGoals_InsufficientGoals(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Challenge with one goal that is already claimed
 	goal := &domain.Goal{
@@ -1638,7 +1815,7 @@ func TestGetRotationStatus_MissingChallengeID(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	ctx := createAuthContext("user123", "test-namespace")
 	req := &pb.GetRotationStatusRequest{
@@ -1662,7 +1839,7 @@ func TestGetRotationStatus_ChallengeNotFound(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	mockCache.On("GetChallengeByChallengeID", "nonexistent").Return(nil)
 
@@ -1689,7 +1866,7 @@ func TestGetRotationStatus_NoRotation(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Challenge with goals that have no rotation config
 	challenge := &domain.Challenge{
@@ -1732,7 +1909,7 @@ func TestGetRotationStatus_WithRotation(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace")
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
 
 	// Challenge with a goal that has daily rotation enabled
 	challenge := &domain.Challenge{
@@ -1899,4 +2076,78 @@ func TestSelectedGoalToProto_FullConversion(t *testing.T) {
 	assert.Equal(t, "ITEM", result.Reward.Type)
 	assert.Equal(t, "sword", result.Reward.RewardId)
 	assert.Equal(t, int32(1), result.Reward.Quantity)
+}
+
+// ========================
+// DeleteUserData (M6 GDPR)
+// ========================
+
+func TestDeleteUserData_Success(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, _, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
+
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "user123").Return(int64(5), nil)
+
+	ctx := createAuthContext("user123", "test-namespace")
+	resp, err := server.DeleteUserData(ctx, &pb.DeleteUserDataRequest{})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, "user123", resp.UserId)
+	assert.Equal(t, int64(5), resp.RowsDeleted)
+	mockRepo.AssertExpectations(t)
+}
+
+func TestDeleteUserData_NoAuthContext(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, _, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
+
+	// No user ID in context
+	resp, err := server.DeleteUserData(context.Background(), &pb.DeleteUserDataRequest{})
+
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+
+	st, ok := status.FromError(err)
+	assert.True(t, ok)
+	assert.Equal(t, codes.Unauthenticated, st.Code())
+}
+
+func TestDeleteUserData_DBError(t *testing.T) {
+	mockCache := new(MockGoalCache)
+	mockRepo := new(MockGoalRepository)
+	mockRewardClient := new(MockRewardClient)
+
+	db, _, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	server := NewChallengeServiceServer(mockCache, mockRepo, mockRewardClient, db, "test-namespace", nil, 0)
+
+	mockRepo.On("DeleteUserData", mock.Anything, "test-namespace", "user123").Return(int64(0), errors.New("db error"))
+
+	ctx := createAuthContext("user123", "test-namespace")
+	resp, err := server.DeleteUserData(ctx, &pb.DeleteUserDataRequest{})
+
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+
+	st, ok := status.FromError(err)
+	assert.True(t, ok)
+	assert.Equal(t, codes.Internal, st.Code())
+	mockRepo.AssertExpectations(t)
 }

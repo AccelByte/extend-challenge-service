@@ -18,12 +18,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/go-openapi/loads"
 
 	"extend-challenge-service/pkg/cache"
+	"extend-challenge-service/pkg/cleanup"
 	"extend-challenge-service/pkg/client"
 	"extend-challenge-service/pkg/common"
 	"extend-challenge-service/pkg/handler"
@@ -261,6 +263,17 @@ func main() {
 		logrus.Fatalf("Invalid REWARD_CLIENT_MODE: %s (must be 'mock' or 'real')", rewardMode)
 	}
 
+	// M6: Create cleanup config and status before server creation (server uses status for health check)
+	cleanupCfg := cleanup.NewCleanupConfigFromEnv()
+	cleanupStatus := cleanup.NewCleanupStatus()
+
+	// When cleanup is disabled, pass zero interval so the health check skips
+	// cleanup liveness monitoring (the s.cleanupInterval > 0 guard handles this).
+	cleanupInterval := cleanupCfg.Interval
+	if !cleanupCfg.Enabled {
+		cleanupInterval = 0
+	}
+
 	// Create ChallengeServiceServer with all dependencies
 	challengeServiceServer := server.NewChallengeServiceServer(
 		goalCache,
@@ -268,6 +281,8 @@ func main() {
 		rewardClient,
 		db,
 		namespace,
+		cleanupStatus,
+		cleanupInterval,
 	)
 
 	// Register Challenge Service with gRPC server
@@ -286,38 +301,48 @@ func main() {
 		logrus.Fatalf("Failed to create gRPC-Gateway: %v", err)
 	}
 
-	// Start the gRPC-Gateway HTTP server with optimized challenge handler
+	// Create handlers and HTTP server outside the goroutine so we can shut it down gracefully
+	swaggerDir := "gateway/apidocs"
+
+	optimizedChallengesHandler := handler.NewOptimizedChallengesHandler(
+		goalCache,
+		goalRepo,
+		serializedCache,
+		namespace,
+		authEnabled,
+		common.Validator,
+	)
+
+	optimizedInitializeHandler := handler.NewOptimizedInitializeHandler(
+		goalCache,
+		goalRepo,
+		namespace,
+		authEnabled,
+		common.Validator,
+	)
+
+	gdprDeletionHandler := handler.NewGDPRDeletionHandler(
+		ctx,
+		goalRepo,
+		namespace,
+		authEnabled,
+		common.Validator,
+		slogLogger,
+	)
+
+	grpcGatewayHTTPServer := newGRPCGatewayHTTPServer(
+		fmt.Sprintf(":%d", grpcGatewayHTTPPort),
+		grpcGateway,
+		logrus.New(),
+		swaggerDir,
+		optimizedChallengesHandler,
+		optimizedInitializeHandler,
+		gdprDeletionHandler,
+		basePath,
+	)
+
+	// Start the gRPC-Gateway HTTP server
 	go func() {
-		swaggerDir := "gateway/apidocs" // Path to swagger directory
-
-		// Create optimized challenges handler (uses pre-serialized cache for 40% CPU reduction)
-		optimizedChallengesHandler := handler.NewOptimizedChallengesHandler(
-			goalCache,
-			goalRepo,
-			serializedCache,
-			namespace,
-			authEnabled,
-			common.Validator, // Token validator (may be nil if auth disabled)
-		)
-
-		// Create optimized initialize handler (bypasses Protobuf marshaling for 50% CPU reduction)
-		optimizedInitializeHandler := handler.NewOptimizedInitializeHandler(
-			goalCache,
-			goalRepo,
-			namespace,
-			authEnabled,
-			common.Validator, // Token validator (may be nil if auth disabled)
-		)
-
-		grpcGatewayHTTPServer := newGRPCGatewayHTTPServer(
-			fmt.Sprintf(":%d", grpcGatewayHTTPPort),
-			grpcGateway,
-			logrus.New(),
-			swaggerDir,
-			optimizedChallengesHandler, // Pass optimized challenges handler
-			optimizedInitializeHandler, // Pass optimized initialize handler
-			basePath,
-		)
 		logrus.Infof("Starting gRPC-Gateway HTTP server on port %d (with optimized /v1/challenges and /v1/challenges/initialize endpoints)", grpcGatewayHTTPPort)
 		if err := grpcGatewayHTTPServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logrus.Fatalf("Failed to run gRPC-Gateway HTTP server: %v", err)
@@ -334,24 +359,35 @@ func main() {
 		prometheusGrpc.DefaultServerMetrics,
 	)
 
+	// M6: Start expired row cleanup goroutine
+	prometheusRegistry.MustRegister(cleanup.Collectors()...)
+	prometheusRegistry.MustRegister(cleanup.NewHeartbeatGauge(cleanupStatus))
+	var cleanupWg sync.WaitGroup
+	cleanupWg.Add(1)
 	go func() {
-		mux := http.NewServeMux()
-		mux.Handle(metricsEndpoint, promhttp.HandlerFor(prometheusRegistry, promhttp.HandlerOpts{}))
+		defer cleanupWg.Done()
+		cleanup.StartCleanupGoroutine(ctx, goalRepo, cleanupCfg, namespace, cleanupStatus, slogLogger)
+	}()
 
-		// Register pprof handlers
-		mux.HandleFunc("/debug/pprof/", pprof.Index)
-		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	// Create metrics server outside the goroutine so we can shut it down gracefully
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle(metricsEndpoint, promhttp.HandlerFor(prometheusRegistry, promhttp.HandlerOpts{}))
 
-		metricsServer := &http.Server{
-			Addr:              fmt.Sprintf(":%d", metricsPort),
-			Handler:           mux,
-			ReadHeaderTimeout: 10 * time.Second,
-			ReadTimeout:       30 * time.Second,
-			WriteTimeout:      30 * time.Second,
-		}
+	// Register pprof handlers
+	metricsMux.HandleFunc("/debug/pprof/", pprof.Index)
+	metricsMux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	metricsMux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	metricsMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	metricsMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+	metricsServer := &http.Server{
+		Addr:              fmt.Sprintf(":%d", metricsPort),
+		Handler:           metricsMux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+	}
+	go func() {
 		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logrus.Fatalf("Failed to run metrics server: %v", err)
 		}
@@ -399,12 +435,52 @@ func main() {
 
 	logrus.Infof("%s started", serviceName)
 
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	signalCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	<-ctx.Done()
-	logrus.Infof("SIGTERM received")
+	<-signalCtx.Done()
+	logrus.Info("SIGTERM received, starting graceful shutdown...")
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer shutdownCancel()
+
+	// Stop accepting new connections on all servers concurrently
+	var shutdownWg sync.WaitGroup
+	shutdownWg.Add(3)
+	go func() {
+		defer shutdownWg.Done()
+		if err := grpcGatewayHTTPServer.Shutdown(shutdownCtx); err != nil {
+			logrus.Errorf("gRPC-Gateway HTTP server shutdown error: %v", err)
+		}
+	}()
+	go func() {
+		defer shutdownWg.Done()
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			logrus.Errorf("Metrics server shutdown error: %v", err)
+		}
+	}()
+	go func() {
+		defer shutdownWg.Done()
+		s.GracefulStop()
+	}()
+	shutdownWg.Wait()
+
+	// Then stop cleanup goroutine
+	cancel()
+	cleanupWg.Wait()
+	logrus.Info("Graceful shutdown complete")
 }
 
+// newGRPCGatewayHTTPServer creates the HTTP server that sits in front of gRPC-Gateway.
+//
+// CUSTOM ENDPOINTS (bypass gRPC-Gateway — not auto-generated by `make proto`):
+//  1. GET  {basePath}/v1/challenges           — OptimizedChallengesHandler (pre-serialized cache)
+//  2. POST {basePath}/v1/challenges/initialize — OptimizedInitializeHandler (direct JSON)
+//  3. DELETE {basePath}/v1/users/me/data       — GDPRDeletionHandler (GDPR compliance)
+//
+// When adding or removing custom handlers:
+//   - Update the handler count log line in the registration block below
+//   - Manually update the Swagger .json file (custom handlers are invisible to `make proto`)
+//   - See docs/ADR_001_OPTIMIZED_HTTP_HANDLER.md for feature parity requirements
 func newGRPCGatewayHTTPServer(
 	addr string,
 	grpcGatewayHandler http.Handler,
@@ -412,6 +488,7 @@ func newGRPCGatewayHTTPServer(
 	swaggerDir string,
 	optimizedChallengesHandler *handler.OptimizedChallengesHandler,
 	optimizedInitializeHandler *handler.OptimizedInitializeHandler,
+	gdprDeletionHandler *handler.GDPRDeletionHandler,
 	basePath string,
 ) *http.Server {
 	// Create a new ServeMux
@@ -430,6 +507,18 @@ func newGRPCGatewayHTTPServer(
 	optimizedInitializePath := basePath + "/v1/challenges/initialize"
 	mux.Handle(optimizedInitializePath, optimizedInitializeHandler)
 	logger.Infof("Registered optimized handler for %s (direct JSON encoding enabled)", optimizedInitializePath)
+
+	// Register GDPR deletion endpoint (M6: DELETE /v1/users/me/data)
+	gdprDeletionPath := basePath + "/v1/users/me/data"
+	mux.Handle(gdprDeletionPath, gdprDeletionHandler)
+	logger.Infof("Registered GDPR deletion handler for %s", gdprDeletionPath)
+
+	// Log summary of all custom HTTP handlers that bypass gRPC-Gateway.
+	// If you add/remove custom handlers, update this count and the list below.
+	// These endpoints are NOT auto-discovered by `make proto` — their Swagger
+	// definitions must be maintained manually in the .swagger.json file.
+	logger.Infof("Custom HTTP handlers registered: %d endpoints bypass gRPC-Gateway [%s, %s, %s]",
+		3, optimizedChallengesPath, optimizedInitializePath, gdprDeletionPath)
 
 	// Add the gRPC-Gateway handler as catch-all (must be last)
 	// This handles all other endpoints including /v1/challenges/{id}/goals/{id}/claim

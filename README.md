@@ -171,6 +171,7 @@ curl -X POST \
 | GET | `/v1/challenges/{challenge_id}` | Get specific challenge with user progress | Required |
 | POST | `/v1/challenges/{challenge_id}/goals/{goal_id}/claim` | Claim reward for completed goal | Required |
 | GET | `/healthz` | Health check | None |
+| DELETE | `/v1/users/me/data` | Delete all user goal progress (GDPR) | Required |
 
 ### gRPC API
 
@@ -413,6 +414,18 @@ docker run -p 6565:6565 -p 8000:8000 \
    - Set `REWARD_CLIENT_MODE=real` for production
 
 See [Suite docs - TECH_SPEC_DEPLOYMENT.md](https://github.com/AccelByte/extend-challenge-suite/blob/master/docs/TECH_SPEC_DEPLOYMENT.md) for detailed deployment guide.
+
+### Production: Autovacuum Tuning
+
+The cleanup goroutine (M6) batch-deletes expired rows, creating dead tuples that PostgreSQL's autovacuum must reclaim. Default autovacuum settings are sufficient for most deployments. For high-throughput deployments (100K+ deletions per cleanup cycle), consider tuning the `user_goal_progress` table:
+
+```sql
+ALTER TABLE user_goal_progress SET (
+    autovacuum_vacuum_scale_factor = 0.05,
+    autovacuum_vacuum_cost_delay = 10,
+    autovacuum_analyze_scale_factor = 0.05
+);
+```
 
 ---
 

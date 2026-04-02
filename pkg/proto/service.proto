@@ -149,6 +149,24 @@ service Service {
     };
   }
 
+  // M6: GDPR user data deletion
+  rpc DeleteUserData (DeleteUserDataRequest) returns (DeleteUserDataResponse) {
+    option (google.api.http) = {
+      delete: "/v1/users/me/data"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Delete user data (GDPR)";
+      description: "Delete all challenge progress data for the authenticated user. Irreversible. Rate limited to 1 request per minute per user.";
+      tags: "GDPR";
+      security: {
+        security_requirement: {
+          key: "Bearer"
+          value: {}
+        }
+      }
+    };
+  }
+
   // Health check endpoint (Decision FQ5)
   rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse) {
     option (google.api.http) = {
@@ -208,6 +226,16 @@ message ClaimRewardResponse {
   string status = 2;
   Reward reward = 3;
   string claimed_at = 4;
+}
+
+// M6: GDPR deletion
+message DeleteUserDataRequest {
+  // User ID and namespace extracted from JWT (not from request body)
+}
+
+message DeleteUserDataResponse {
+  string user_id = 1;
+  int64 rows_deleted = 2;
 }
 
 message HealthCheckRequest {}

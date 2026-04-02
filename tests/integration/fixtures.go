@@ -210,3 +210,99 @@ func seedRotationGoalWithStaleUpdatedAt(
 		t.Fatalf("Failed to seed rotation goal: %v", err)
 	}
 }
+
+// --- M6 Cleanup Helpers ---
+
+// seedExpiredGoal inserts a row with expires_at = NOW() - daysAgo (M6 helper)
+func seedExpiredGoal(t *testing.T, db *sql.DB, userID, goalID, challengeID, status string, daysAgo int) {
+	t.Helper()
+
+	now := time.Now()
+	expiresAt := now.Add(-time.Duration(daysAgo) * 24 * time.Hour)
+
+	_, err := db.Exec(`
+		INSERT INTO user_goal_progress
+		(user_id, goal_id, challenge_id, namespace, progress, status, is_active, expires_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, userID, goalID, challengeID, "test-namespace", 0, status, false, expiresAt, now, now)
+
+	if err != nil {
+		t.Fatalf("Failed to seed expired goal: %v", err)
+	}
+}
+
+// seedPermanentGoal inserts a row with expires_at = NULL (M6 helper)
+func seedPermanentGoal(t *testing.T, db *sql.DB, userID, goalID, challengeID, status string) {
+	t.Helper()
+
+	now := time.Now()
+
+	_, err := db.Exec(`
+		INSERT INTO user_goal_progress
+		(user_id, goal_id, challenge_id, namespace, progress, status, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, userID, goalID, challengeID, "test-namespace", 0, status, true, now, now)
+
+	if err != nil {
+		t.Fatalf("Failed to seed permanent goal: %v", err)
+	}
+}
+
+// seedFutureExpiryGoal inserts a row with expires_at = NOW() + daysAhead (M6 helper)
+func seedFutureExpiryGoal(t *testing.T, db *sql.DB, userID, goalID, challengeID, status string, daysAhead int) {
+	t.Helper()
+
+	now := time.Now()
+	expiresAt := now.Add(time.Duration(daysAhead) * 24 * time.Hour)
+
+	_, err := db.Exec(`
+		INSERT INTO user_goal_progress
+		(user_id, goal_id, challenge_id, namespace, progress, status, is_active, expires_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, userID, goalID, challengeID, "test-namespace", 0, status, true, expiresAt, now, now)
+
+	if err != nil {
+		t.Fatalf("Failed to seed future expiry goal: %v", err)
+	}
+}
+
+// countRowsForUser returns COUNT(*) WHERE user_id = userID (M6 helper)
+func countRowsForUser(t *testing.T, db *sql.DB, userID string) int {
+	t.Helper()
+
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM user_goal_progress WHERE user_id = $1`, userID).Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to count rows for user %s: %v", userID, err)
+	}
+
+	return count
+}
+
+// countAllRows returns COUNT(*) FROM user_goal_progress (M6 helper)
+func countAllRows(t *testing.T, db *sql.DB) int {
+	t.Helper()
+
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM user_goal_progress`).Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to count all rows: %v", err)
+	}
+
+	return count
+}
+
+// goalExists checks if a specific (user_id, goal_id) row exists (M6 helper)
+func goalExists(t *testing.T, db *sql.DB, userID, goalID string) bool {
+	t.Helper()
+
+	var exists bool
+	err := db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM user_goal_progress WHERE user_id = $1 AND goal_id = $2)
+	`, userID, goalID).Scan(&exists)
+	if err != nil {
+		t.Fatalf("Failed to check goal existence: %v", err)
+	}
+
+	return exists
+}
